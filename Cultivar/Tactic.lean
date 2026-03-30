@@ -129,7 +129,8 @@ def callSageRpc (A : Matrix (Fin m) (Fin n) R) : IO (Matrix (Fin m) (Fin m) R ×
   | Except.error err =>
     throw <| IO.userError s!"JSON Parse Error: {err}\nRaw string: {respStr}"
 
-elab "sage_factor' " origTerm:term : tactic => do
+-- TODO: Figure out what the tactic should actually look like
+/- elab "sage_factor' " origTerm:term : tactic => do
   let fmt ← PrettyPrinter.ppTerm origTerm
   let polyStr := fmt.pretty
 
@@ -146,4 +147,4 @@ elab "sage_factor' " origTerm:term : tactic => do
       rw [H] )
   )
 
-  evalTactic stx
+  evalTactic stx -/
