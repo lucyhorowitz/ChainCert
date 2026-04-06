@@ -11,6 +11,8 @@ def process_request(line):
     try:
         req = json.loads(line)
         entries = req.get("matrix")
+        if isinstance(entries, str):
+            entries = json.loads(entries)
         A = matrix(ZZ, entries)
         D, U, V = A.smith_form()
         return json.dumps({

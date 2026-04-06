@@ -18,7 +18,7 @@ def getSageServer : IO (IO.Process.Child {stdin := .piped, stdout := .piped, std
   | some child => return child
   | none =>
     -- This ensures we find sage_server.py in your current directory
-    let serverScript := "sage_server.py"
+    let serverScript := "scripts/snf_server.py"
 
     let child ← IO.Process.spawn {
       -- Use the absolute path to the Conda sage binary
