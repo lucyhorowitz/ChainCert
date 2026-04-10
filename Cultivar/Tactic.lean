@@ -30,6 +30,7 @@ def getSageServer : IO (IO.Process.Child {stdin := .piped, stdout := .piped, std
     sageServerRef.set (some child)
     return child
 
+-- TODO: just SageSerializable
 class SageSerializableRing (R : Type*) where
   toSageString : R → String
   fromSageString : String → Option R
@@ -134,39 +135,6 @@ def toMatString (A : Matrix (Fin m) (Fin n) R) :=
   | Except.error err =>
     throw <| IO.userError s!"JSON Parse Error: {err}\nRaw string: {respStr}" -/
 
-partial def exprVecToList (e : Expr) : MetaM (List Expr):=
-  do
-    let e ← reduce e
-    match e.getAppFnArgs with
-    | (``Matrix.vecCons, #[_, _, _, hd, tl]) =>
-      let rest ← exprVecToList tl
-      return hd :: rest
-    | (``Matrix.vecEmpty, _) => return []
-    | _ => throwError "expected vecCons/vecEmpty, got {e}"
-
-def exprMatrixToLists (e : Expr) : MetaM (List (List Expr)) := do
-    let e ← reduce e
-    -- Peel off Matrix.of if present
-    let inner ← match e.getAppFnArgs with
-      | (``Matrix.of, #[_, _, _, f]) => reduce f
-      | _ => throwError "expected Matrix.of, got {e}"
-    -- outer vecCons chain = rows
-    let rows ← exprVecToList inner
-    rows.mapM exprVecToList
-
-def exprIntToString (e : Expr) : MetaM String := do
-  let e ← reduce e
-  match e.getAppFnArgs with
-  | (``Int.ofNat, #[n]) =>
-      match n.rawNatLit? with
-      | some v => return toString v
-      | none => throwError "expected Nat literal"
-  | (``Int.negSucc, #[n]) =>
-    match n.rawNatLit? with
-    | some v => return toString (-(v + 1 : Int))
-    | none => throwError "expected Nat literal"
-  | _ => throwError "expected integer literal, got {e}"
-
 #check Matrix.of
 #check Matrix.vecCons
 
@@ -243,23 +211,3 @@ elab "#snf" t:term : command =>
           throwError s!"Sage Server Error: {errMsg}"
     | Except.error err =>
       throwError s!"JSON Parse Error: {err}\nRaw string: {respStr}"
-
--- TODO: Figure out what the tactic should actually look like
-/- elab "sage_factor' " origTerm:term : tactic => do
-  let fmt ← PrettyPrinter.ppTerm origTerm
-  let polyStr := fmt.pretty
-
-  let factoredStr ← callSageRpc polyStr
-  logInfo s!"[Sage RPC] Factored to: {factoredStr}"
-
-  let env ← getEnv
-  let factSyntax ← Lean.ofExcept <| Parser.runParserCategory env `term factoredStr
-  let factTerm : TSyntax `term := ⟨factSyntax⟩
-
-  let stx ← `(tactic|
-    ( --have h_sage : $origTerm = $factTerm := by ring_nf
-      have H : $origTerm = $factTerm := by sorry
-      rw [H] )
-  )
-
-  evalTactic stx -/
