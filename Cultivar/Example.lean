@@ -6,6 +6,9 @@ import Cultivar.Tactic
 
 def A : Matrix (Fin 3) (Fin 3) ℤ := !![2, 4, 4; -6, 6, 12; 10, 4, 16]
 
+#snf !![2, 4, 4; -6, 6, 12; 10, 4, 16]
+#snf A
+
 #eval show IO _ from do
   let (U, D, V) ← callSageRpc A
   IO.println s!"U = {matStringList U}"

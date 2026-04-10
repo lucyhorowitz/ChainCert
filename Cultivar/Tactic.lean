@@ -6,6 +6,7 @@
 
 import Mathlib.Tactic.Ring
 import Mathlib.LinearAlgebra.Matrix.Defs
+import Mathlib.Data.Fin.VecNotation
 import Lean
 
 open Lean Elab Tactic Meta Term IO Process
@@ -63,7 +64,7 @@ def matStringList (A : Matrix (Fin m) (Fin n) R) :=
 def toMatString (A : Matrix (Fin m) (Fin n) R) :=
   "[" ++ ", ".intercalate ((matStringList A).map (fun row => "[" ++ ", ".intercalate row ++ "]")) ++ "]"
 
-def fromJsonMatrix {m n : ℕ} [Inhabited R] (j : Lean.Json) : IO (Matrix (Fin m) (Fin n) R) := do
+/- def fromJsonMatrix {m n : ℕ} [Inhabited R] (j : Lean.Json) : IO (Matrix (Fin m) (Fin n) R) := do
   match j with
   | Lean.Json.arr rows =>
     if rows.size ≠ m then
@@ -88,18 +89,18 @@ def fromJsonMatrix {m n : ℕ} [Inhabited R] (j : Lean.Json) : IO (Matrix (Fin m
               | none => throw <| IO.userError s!"Could not parse entry: {s}"
         | _ => throw <| IO.userError s!"Row {i.val} is not a JSON array"
     return Matrix.of (fun i j => mat[i.val]![j.val]!)
-  | _ => throw <| IO.userError "Expected JSON array for matrix"
+  | _ => throw <| IO.userError "Expected JSON array for matrix" -/
 
 
 -- Testing out the fromJsonMatrix function
-#eval show IO _ from do
+/- #eval show IO _ from do
   let mat ← fromJsonMatrix (m := 2) (n := 2) (R := ℤ)
     (Lean.Json.arr #[
       Lean.Json.arr #[Lean.Json.str "1", Lean.Json.str "2"],
       Lean.Json.arr #[Lean.Json.str "3", Lean.Json.str "4"]])
-  return (List.ofFn fun i : Fin 2 => List.ofFn fun j : Fin 2 => mat i j)
+  return (List.ofFn fun i : Fin 2 => List.ofFn fun j : Fin 2 => mat i j) -/
 
-def callSageRpc (A : Matrix (Fin m) (Fin n) R) : IO (Matrix (Fin m) (Fin m) R × Matrix (Fin m) (Fin n) R × Matrix (Fin n) (Fin n) R) := do
+/- def callSageRpc (A : Matrix (Fin m) (Fin n) R) : IO (Matrix (Fin m) (Fin m) R × Matrix (Fin m) (Fin m) R × Matrix (Fin m) (Fin n) R × Matrix (Fin n) (Fin n) R × Matrix (Fin n) (Fin n) R) := do
   let server ← getSageServer
 
   let matStr := toMatString A
@@ -117,17 +118,131 @@ def callSageRpc (A : Matrix (Fin m) (Fin n) R) : IO (Matrix (Fin m) (Fin m) R ×
     match json.getObjVal? "status" with
     | Except.ok (Lean.Json.str "ok") =>
       let U_json ← IO.ofExcept <| json.getObjVal? "U"
+      let Uinv_json ← IO.ofExcept <| json.getObjVal? "Uinv"
       let D_json ← IO.ofExcept <| json.getObjVal? "D"
       let V_json ← IO.ofExcept <| json.getObjVal? "V"
+      let Vinv_json ← IO.ofExcept <| json.getObjVal? "Vinv"
       let U ← fromJsonMatrix U_json
+      let Uinv ← fromJsonMatrix Uinv_json
       let D ← fromJsonMatrix D_json
       let V ← fromJsonMatrix V_json
-      return (U, D, V)
+      let Vinv ← fromJsonMatrix Vinv_json
+      return (U, Uinv, D, V, Vinv)
     | _ =>
         let errMsg := (json.getObjVal? "message").toOption.map (·.compress) |>.getD "Unknown Error"
         throw <| IO.userError s!"Sage Server Error: {errMsg}"
   | Except.error err =>
-    throw <| IO.userError s!"JSON Parse Error: {err}\nRaw string: {respStr}"
+    throw <| IO.userError s!"JSON Parse Error: {err}\nRaw string: {respStr}" -/
+
+partial def exprVecToList (e : Expr) : MetaM (List Expr):=
+  do
+    let e ← reduce e
+    match e.getAppFnArgs with
+    | (``Matrix.vecCons, #[_, _, _, hd, tl]) =>
+      let rest ← exprVecToList tl
+      return hd :: rest
+    | (``Matrix.vecEmpty, _) => return []
+    | _ => throwError "expected vecCons/vecEmpty, got {e}"
+
+def exprMatrixToLists (e : Expr) : MetaM (List (List Expr)) := do
+    let e ← reduce e
+    -- Peel off Matrix.of if present
+    let inner ← match e.getAppFnArgs with
+      | (``Matrix.of, #[_, _, _, f]) => reduce f
+      | _ => throwError "expected Matrix.of, got {e}"
+    -- outer vecCons chain = rows
+    let rows ← exprVecToList inner
+    rows.mapM exprVecToList
+
+def exprIntToString (e : Expr) : MetaM String := do
+  let e ← reduce e
+  match e.getAppFnArgs with
+  | (``Int.ofNat, #[n]) =>
+      match n.rawNatLit? with
+      | some v => return toString v
+      | none => throwError "expected Nat literal"
+  | (``Int.negSucc, #[n]) =>
+    match n.rawNatLit? with
+    | some v => return toString (-(v + 1 : Int))
+    | none => throwError "expected Nat literal"
+  | _ => throwError "expected integer literal, got {e}"
+
+#check Matrix.of
+#check Matrix.vecCons
+
+-- this is fine to be unsafe according to Claude since it only affects how Sage would be called,
+-- which we don't trust anyway.
+unsafe def evalSageString (entry : Expr) : MetaM String := do
+    let callExpr ← mkAppM ``SageSerializableRing.toSageString #[entry]
+    Lean.Meta.evalExpr String (.const ``String []) callExpr
+
+@[implemented_by evalSageString]
+  opaque evalSageStringSafe (entry : Expr) : MetaM String
+
+def stringListToMatString (rows : List (List String)) : String :=
+  "[" ++ ", ".intercalate (rows.map (fun row => "[" ++ ", ".intercalate row ++ "]")) ++ "]"
+
+elab "#snf" t:term : command =>
+  Lean.Elab.Command.liftTermElabM do
+    let expr ← Lean.Elab.Term.elabTerm t none
+    Lean.Elab.Term.synthesizeSyntheticMVarsNoPostponing
+    let type ← Lean.Meta.inferType expr
+    let (``Matrix, #[finM, finN, _R]) := type.getAppFnArgs
+      | throwError "expected Matrix type, got {type}"
+    let (``Fin, #[mExpr]) := finM.getAppFnArgs
+      | throwError "expected Fin m, got {finM}"
+    let (``Fin, #[nExpr]) := finN.getAppFnArgs
+      | throwError "expected Fin n, got {finN}"
+    let mExpr ← Lean.Meta.whnf mExpr
+    let nExpr ← Lean.Meta.whnf nExpr
+    let some m := mExpr.rawNatLit?
+      | throwError "expected nat literal for m"
+    let some n := nExpr.rawNatLit?
+      | throwError "expected nat literal for n"
+    let finMType ← mkAppM ``Fin #[mkRawNatLit m]
+    let finNType ← mkAppM ``Fin #[mkRawNatLit n]
+    let mut rows : List (List String) := []
+    for i in List.range m do
+      let mut row : List String := []
+      for j in List.range n do
+        let iExpr ← Lean.Meta.mkNumeral finMType i
+        let jExpr ← Lean.Meta.mkNumeral finNType j
+        let entry := mkApp2 expr iExpr jExpr
+        let s ← evalSageStringSafe entry
+        row := row ++ [s]
+      rows := rows ++ [row]
+
+    let str := stringListToMatString rows
+    let server ← getSageServer
+
+    let reqJson := Lean.Json.mkObj [("matrix", Lean.Json.str str)]
+    let reqStr := reqJson.compress ++ "\n"
+
+    server.stdin.putStr reqStr
+    server.stdin.flush
+
+    let respStr ← server.stdout.getLine
+
+    match Lean.Json.parse respStr with
+    | Except.ok json =>
+
+      match json.getObjVal? "status" with
+      | Except.ok (Lean.Json.str "ok") =>
+        let uJson ← IO.ofExcept (json.getObjVal? "U")
+        let uinvJson ← IO.ofExcept (json.getObjVal? "Uinv")
+        let dJson ← IO.ofExcept (json.getObjVal? "D")
+        let vJson ← IO.ofExcept (json.getObjVal? "V")
+        let vinvJson ← IO.ofExcept (json.getObjVal? "Vinv")
+        logInfo m!"U = {uJson}\n\
+                     Uinv = {uinvJson}\n\
+                     D = {dJson}\n\
+                     V = {vJson}\n\
+                     Vinv = {vinvJson}"
+      | _ =>
+          let errMsg := (json.getObjVal? "message").toOption.map (·.compress) |>.getD "Unknown Error"
+          throwError s!"Sage Server Error: {errMsg}"
+    | Except.error err =>
+      throwError s!"JSON Parse Error: {err}\nRaw string: {respStr}"
 
 -- TODO: Figure out what the tactic should actually look like
 /- elab "sage_factor' " origTerm:term : tactic => do

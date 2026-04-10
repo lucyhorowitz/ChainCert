@@ -15,11 +15,15 @@ def process_request(line):
             entries = json.loads(entries)
         A = matrix(ZZ, entries)
         D, U, V = A.smith_form()
+        Uinv = U.inverse()
+        Vinv = V.inverse()
         return json.dumps({
             "status": "ok",
             "D": [[str(x) for x in row] for row in D.rows()],
             "U": [[str(x) for x in row] for row in U.rows()],
-            "V": [[str(x) for x in row] for row in V.rows()]
+            "Uinv": [[str(x) for x in row] for row in Uinv.rows()],
+            "V": [[str(x) for x in row] for row in V.rows()],
+            "Vinv": [[str(x) for x in row] for row in Vinv.rows()]
         })
     except Exception as e:
         return json.dumps({"status": "error", "message": str(e)})
