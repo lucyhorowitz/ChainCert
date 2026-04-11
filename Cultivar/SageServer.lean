@@ -18,7 +18,6 @@ def getSageServer : IO (IO.Process.Child {stdin := .piped, stdout := .piped, std
   | none =>
     -- This ensures we find sage_server.py in your current directory
     let serverScript := "scripts/snf_server.py"
-
     let child ← IO.Process.spawn {
       -- Use the absolute path to the Conda sage binary
       cmd := "sage",
@@ -27,7 +26,6 @@ def getSageServer : IO (IO.Process.Child {stdin := .piped, stdout := .piped, std
     }
     sageServerRef.set (some child)
     return child
-
 
 /-- Typeclass for things whose elements can be represented as strings
     that are readable by Sage -/
@@ -87,3 +85,24 @@ with an `opaque` signature. -/
 
 def stringListToMatString (rows : List (List String)) : String :=
   "[" ++ ", ".intercalate (rows.map (fun row => "[" ++ ", ".intercalate row ++ "]")) ++ "]"
+
+/-- Send a JSON request to the persistent Sage server and return the parsed
+response object. Handles the write/read/parse/status-check plumbing so callers
+only need to build the request and pull fields out of the result.
+
+Throws on JSON parse errors and on responses with `status ≠ "ok"`. -/
+def sendSageRequest (req : Lean.Json) : MetaM Lean.Json := do
+  let server ← getSageServer
+  server.stdin.putStr (req.compress ++ "\n")
+  server.stdin.flush
+  let respStr ← server.stdout.getLine
+  match Lean.Json.parse respStr with
+  | .error err =>
+    throwError s!"Sage JSON parse error: {err}\nRaw response: {respStr}"
+  | .ok json =>
+    match json.getObjVal? "status" with
+    | .ok (.str "ok") => return json
+    | _ =>
+      let errMsg := (json.getObjVal? "message").toOption.map (·.compress)
+                      |>.getD "unknown error"
+      throwError s!"Sage server error: {errMsg}"

@@ -22,17 +22,9 @@ def K' : FiniteFacetComplex (Fin 5) where
 
 def K : AbstractSimplicialComplex (Fin 5) := ASC_of_FFC K'
 
-#diff K, 1
+def n := 1
 
--- TODO: (low priority) write a tactic to automatically generate isRelLowerSet_faces and
--- singleton_mem proofs.
--- isRelLowerSet_faces, if you define the simplicial complex with the facets (max faces) as above,
--- will be the same proof every time, but the number of .imp s will depend on the number of faces.
--- the singleton_mem proof will be literally exactly the same every time.
-
--- TODO: (high priority) extract the boundary maps from K.
--- Send the face data to Sage (via the existing RPC bridge) and have Sage compute the
--- differentials d₁ : C₁ → C₀ and d₂ : C₂ → C₁ as integer matrices.
+#diff K', 1
 
 -- TODO: prove in Lean that the matrices returned by Sage are the correct differentials.
 -- This means showing that each column encodes the boundary of the corresponding simplex

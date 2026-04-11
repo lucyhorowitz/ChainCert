@@ -4,10 +4,8 @@ import Mathlib.LinearAlgebra.Matrix.Determinant.Basic
 import Mathlib.AlgebraicTopology.SimplicialComplex.Basic
 import Cultivar.SNF
 import Cultivar.SNFCommand
-import Cultivar.Differential
-import Cultivar.Tactic
 
-variable {ι : Type} [DecidableEq ι] [Fintype ι]
+variable {ι : Type} [DecidableEq ι] [Fintype ι] [LinearOrder ι]
 
 /- In general I'll care about finite simplicial complexes -/
 
@@ -33,3 +31,7 @@ def ASC_of_FFC (F : FiniteFacetComplex ι) : AbstractSimplicialComplex ι where
     refine ⟨Finset.singleton_nonempty _, ?_⟩
     obtain ⟨f, hf, hv⟩ := F.vertex_mem v
     exact ⟨f, hf,Finset.singleton_subset_iff.mpr hv⟩
+
+def FiniteFacetComplex.toRawFacets (F : FiniteFacetComplex ι) : List (List ℕ) :=
+  let order := (Finset.univ : Finset ι).sort (· ≤ ·)
+  (F.facets.image (fun f => (f.sort (· ≤ ·)).map (order.idxOf ·))).sort (· ≤ ·)

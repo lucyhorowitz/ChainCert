@@ -32,28 +32,18 @@ elab "#snf" t:term : command =>
         row := row ++ [s]
       rows := rows ++ [row]
     let str := stringListToMatString rows
-    let server ← getSageServer
-    let reqJson := Lean.Json.mkObj [("matrix", Lean.Json.str str)]
-    let reqStr := reqJson.compress ++ "\n"
-    server.stdin.putStr reqStr
-    server.stdin.flush
-    let respStr ← server.stdout.getLine
-    match Lean.Json.parse respStr with
-    | Except.ok json =>
-      match json.getObjVal? "status" with
-      | Except.ok (Lean.Json.str "ok") =>
-        let uJson ← IO.ofExcept (json.getObjVal? "U")
-        let uinvJson ← IO.ofExcept (json.getObjVal? "Uinv")
-        let dJson ← IO.ofExcept (json.getObjVal? "D")
-        let vJson ← IO.ofExcept (json.getObjVal? "V")
-        let vinvJson ← IO.ofExcept (json.getObjVal? "Vinv")
-        logInfo m!"U = {uJson}\n\
-                     Uinv = {uinvJson}\n\
-                     D = {dJson}\n\
-                     V = {vJson}\n\
-                     Vinv = {vinvJson}"
-      | _ =>
-          let errMsg := (json.getObjVal? "message").toOption.map (·.compress) |>.getD "Unknown Error"
-          throwError s!"Sage Server Error: {errMsg}"
-    | Except.error err =>
-      throwError s!"JSON Parse Error: {err}\nRaw string: {respStr}"
+    let reqJson := Lean.Json.mkObj [
+      ("op", Lean.Json.str "snf"),
+      ("matrix", Lean.Json.str str)
+    ]
+    let json ← sendSageRequest reqJson
+    let uJson ← IO.ofExcept (json.getObjVal? "U")
+    let uinvJson ← IO.ofExcept (json.getObjVal? "Uinv")
+    let dJson ← IO.ofExcept (json.getObjVal? "D")
+    let vJson ← IO.ofExcept (json.getObjVal? "V")
+    let vinvJson ← IO.ofExcept (json.getObjVal? "Vinv")
+    logInfo m!"U = {uJson}\n\
+                 Uinv = {uinvJson}\n\
+                 D = {dJson}\n\
+                 V = {vJson}\n\
+                 Vinv = {vinvJson}"
