@@ -15,3 +15,4 @@ def bowTieFFC : FiniteFacetComplex (Fin 5) where
 
 #diff bowTieFFC, 1
 #boundary_check bowTieFFC, 1
+#boundary_goal bowTieFFC, 1

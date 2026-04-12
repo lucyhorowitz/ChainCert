@@ -3,7 +3,7 @@ import Cultivar.SimplicialComplex
 import Cultivar.Boundary.Basis
 import Cultivar.Boundary.Spec
 
-variable {ι : Type} [DecidableEq ι]
+variable {ι : Type} [DecidableEq ι] [Fintype ι] [LinearOrder ι]
 
 /-- Matrix-shape sanity check for matrix-as-data representation:
 `d` should have one row per codomain simplex and one column per domain simplex. -/
@@ -48,14 +48,26 @@ instance (dom cod : List (List ι)) (d : List (List Int)) :
   unfold verifyBoundaryDataCore
   infer_instance
 
-def verifyBoundaryData [Fintype ι] [LinearOrder ι]
+def verifyBoundaryData
     (F : FiniteFacetComplex ι) (k : Nat)
     (dom cod : List (List Nat)) (d : List (List Int)) : Prop :=
   validDomainBasis F k dom ∧
   validCodomainBasis F k cod ∧
   verifyBoundaryDataCore dom cod d
 
-instance [Fintype ι] [LinearOrder ι] (F : FiniteFacetComplex ι) (k : Nat)
+def validDomainBasisB
+    (F : FiniteFacetComplex ι) (k : Nat) (dom : List (List Nat)) : Bool :=
+  decide (validDomainBasis F k dom)
+
+def validCodomainBasisB
+    (F : FiniteFacetComplex ι) (k : Nat) (cod : List (List Nat)) : Bool :=
+  decide (validCodomainBasis F k cod)
+
+def verifyBoundaryDataCoreB
+    (dom cod : List (List Nat)) (d : List (List Int)) : Bool :=
+  decide (verifyBoundaryDataCore dom cod d)
+
+instance (F : FiniteFacetComplex ι) (k : Nat)
     (dom cod : List (List Nat)) (d : List (List Int)) :
     Decidable (verifyBoundaryData F k dom cod d) := by
   unfold verifyBoundaryData
@@ -106,3 +118,39 @@ def firstMismatchInRows (dom cod : List (List Nat)) (d : List (List Int)) :
 bases) between actual and expected boundary coefficients, if any. -/
 def firstMismatch (dom cod : List (List Nat)) (d : List (List Int)) : Option BoundaryMismatch :=
   firstMismatchInRows dom cod d (List.range cod.length)
+
+
+theorem verifyBoundaryDataB_eq_true_iff (F : FiniteFacetComplex ι) (k : Nat) (dom cod : List (List Nat)) (d : List (List Int)) :
+    verifyBoundaryDataB F k dom cod d = true ↔ verifyBoundaryData F k dom cod d := by
+  constructor
+  · exact fun a ↦ of_decide_eq_true a
+  · intro h
+    exact decide_eq_true h
+
+theorem validDomainBasisB_eq_true_iff (F : FiniteFacetComplex ι) (k : Nat) (dom : List (List Nat)) :
+    validDomainBasisB F k dom = true ↔ validDomainBasis F k dom := by
+  constructor
+  · exact fun a ↦ of_decide_eq_true a
+  · intro h
+    exact decide_eq_true h
+
+theorem validCodomainBasisB_eq_true_iff (F : FiniteFacetComplex ι) (k : Nat) (cod : List (List Nat)) :
+    validCodomainBasisB F k cod = true ↔ validCodomainBasis F k cod := by
+  constructor
+  · exact fun a ↦ of_decide_eq_true a
+  · intro h
+    exact decide_eq_true h
+
+theorem verifyBoundaryDataCoreB_eq_true_iff (dom cod : List (List Nat)) (d : List (List Int)) :
+    verifyBoundaryDataCoreB dom cod d = true ↔ verifyBoundaryDataCore dom cod d := by
+  constructor
+  · exact fun a ↦ of_decide_eq_true a
+  · intro h
+    exact decide_eq_true h
+
+theorem verified_of_check_true
+    (F : FiniteFacetComplex ι) (k : Nat)
+    (dom cod : List (List Nat)) (d : List (List Int)) :
+    verifyBoundaryDataB F k dom cod d = true → verifyBoundaryData F k dom cod d := by
+  intro h
+  exact (verifyBoundaryDataB_eq_true_iff F k dom cod d).1 h

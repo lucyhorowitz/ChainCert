@@ -69,6 +69,24 @@ opaque evalBoundaryCheckSafe
     (dom cod : List (List Nat))
     (d : List (List Int)) : MetaM Bool
 
+unsafe def evalBoundaryDiagnostics
+    (ffcExpr nExpr : Expr)
+    (dom cod : List (List Nat))
+    (d : List (List Int)) : MetaM (Bool × Bool × Bool) := do
+  let domExpr ← mkAppM ``validDomainBasisB #[ffcExpr, nExpr, toExpr dom]
+  let codExpr ← mkAppM ``validCodomainBasisB #[ffcExpr, nExpr, toExpr cod]
+  let coreExpr ← mkAppM ``verifyBoundaryDataCoreB #[toExpr dom, toExpr cod, toExpr d]
+  let domOK ← Lean.Meta.evalExpr Bool (mkConst ``Bool) domExpr
+  let codOK ← Lean.Meta.evalExpr Bool (mkConst ``Bool) codExpr
+  let coreOK ← Lean.Meta.evalExpr Bool (mkConst ``Bool) coreExpr
+  pure (domOK, codOK, coreOK)
+
+@[implemented_by evalBoundaryDiagnostics]
+opaque evalBoundaryDiagnosticsSafe
+    (ffcExpr nExpr : Expr)
+    (dom cod : List (List Nat))
+    (d : List (List Int)) : MetaM (Bool × Bool × Bool)
+
 unsafe def evalFirstMismatch
     (dom cod : List (List Nat))
     (d : List (List Int)) : MetaM (Option BoundaryMismatch) := do
@@ -94,16 +112,27 @@ elab "#boundary_check" m:term "," n:term : command =>
     let mExpr ← Lean.Elab.Term.elabTerm m none
     let nExpr ← Lean.Elab.Term.elabTerm n (some (mkConst ``Nat))
     Lean.Elab.Term.synthesizeSyntheticMVarsNoPostponing
-    let (k, dom, cod, d) ← fetchBoundaryData mExpr nExpr
+    let (_k, dom, cod, d) ← fetchBoundaryData mExpr nExpr
     let ok ← evalBoundaryCheckSafe mExpr nExpr dom cod d
     if ok then
       logInfo "boundary check: PASS"
     else
+      let (domOK, codOK, coreOK) ← evalBoundaryDiagnosticsSafe mExpr nExpr dom cod d
+      logInfo m!"boundary check: FAIL (domOK={domOK}, codOK={codOK}, coreOK={coreOK})"
       let mismatch ← evalFirstMismatchSafe dom cod d
       match mismatch with
       | some mm =>
-          logInfo m!"boundary check: FAIL at (row={mm.i}, col={mm.j})"
+          logInfo m!"entry mismatch at (row={mm.i}, col={mm.j})"
           logInfo m!"actual={mm.actual}, expected={mm.expected}"
           logInfo m!"tau(row simplex)={mm.τ}, sigma(col simplex)={mm.σ}"
       | none =>
-          logInfo "boundary check: FAIL (basis mismatch and/or shape mismatch before entry checks)"
+          logInfo "no entry mismatch found (likely basis and/or shape issue)"
+
+elab "#boundary_goal" s:term "," n:term : command =>
+  Lean.Elab.Command.liftTermElabM do
+    let sExpr ← Lean.Elab.Term.elabTerm s none
+    let nExpr ← Lean.Elab.Term.elabTerm n (some (mkConst ``Nat))
+    Lean.Elab.Term.synthesizeSyntheticMVarsNoPostponing
+    let (_k, dom, cod, d) ← fetchBoundaryData sExpr nExpr
+    let goalExpr ← mkAppM ``verifyBoundaryData #[sExpr, nExpr, toExpr dom, toExpr cod, toExpr d]
+    logInfo m!"goal: {goalExpr}"
