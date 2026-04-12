@@ -37,7 +37,7 @@ private def logBoundaryData (n : Nat) (dom cod : List (List Nat)) (d : List (Lis
 def fetchBoundaryData (ffcExpr nExpr : Expr) :
     MetaM (Nat × List (List Nat) × List (List Nat) × List (List Int)) := do
     let stype ← inferType ffcExpr
-    let (``FiniteFacetComplex, #[_]) := stype.getAppFnArgs
+    let (``FiniteFacetComplex, #[_ιExpr]) := stype.getAppFnArgs
     | throwError "expected FiniteFacetComplex type, got {stype}"
     let n ← evalNatSafe nExpr
     let facets ← evalRawFacetsSafe ffcExpr
@@ -60,8 +60,7 @@ unsafe def evalBoundaryCheck
     (ffcExpr nExpr : Expr)
     (dom cod : List (List Nat))
     (d : List (List Int)) : MetaM Bool := do
-  let verifyExpr ← mkAppM ``verifyBoundaryData #[ffcExpr, nExpr, toExpr dom, toExpr cod, toExpr d]
-  let okExpr ← mkAppM ``decide #[verifyExpr]
+  let okExpr ← mkAppM ``verifyBoundaryDataB #[ffcExpr, nExpr, toExpr dom, toExpr cod, toExpr d]
   Lean.Meta.evalExpr Bool (mkConst ``Bool) okExpr
 
 @[implemented_by evalBoundaryCheck]
@@ -90,13 +89,12 @@ elab "#diff" s:term "," n:term : command =>
     let (k, dom, cod, d) ← fetchBoundaryData sExpr nExpr
     logBoundaryData k dom cod d
 
-elab "#check_boundary" m:term "," n:term : command =>
+elab "#boundary_check" m:term "," n:term : command =>
   Lean.Elab.Command.liftTermElabM do
     let mExpr ← Lean.Elab.Term.elabTerm m none
     let nExpr ← Lean.Elab.Term.elabTerm n (some (mkConst ``Nat))
     Lean.Elab.Term.synthesizeSyntheticMVarsNoPostponing
     let (k, dom, cod, d) ← fetchBoundaryData mExpr nExpr
-    logBoundaryData k dom cod d
     let ok ← evalBoundaryCheckSafe mExpr nExpr dom cod d
     if ok then
       logInfo "boundary check: PASS"

@@ -61,6 +61,11 @@ instance [Fintype ι] [LinearOrder ι] (F : FiniteFacetComplex ι) (k : Nat)
   unfold verifyBoundaryData
   infer_instance
 
+def verifyBoundaryDataB [Fintype ι] [LinearOrder ι]
+    (F : FiniteFacetComplex ι) (k : Nat)
+    (dom cod : List (List Nat)) (d : List (List Int)) : Bool :=
+  decide (verifyBoundaryData F k dom cod d)
+
 structure BoundaryMismatch where
   i : Nat
   j : Nat

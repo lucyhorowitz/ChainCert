@@ -14,3 +14,4 @@ def bowTieFFC : FiniteFacetComplex (Fin 5) where
   vertex_mem := by decide
 
 #diff bowTieFFC, 1
+#boundary_check bowTieFFC, 1
