@@ -1,0 +1,51 @@
+-- Boundary verification roadmap (spec-first, no Lean-generated boundary matrix)
+
+-- [ ] Boundary.Spec
+-- [x] define orientFace : Finset ι -> List ι (canonical sorted orientation)
+-- [x] define deletionIndex / boundaryCoeff / isBoundaryEntry
+-- [x] define safe matrix-data helpers getEntry? / expectedEntry?
+-- [x] add small smoke tests for sign and deletion behavior (Examples/TestSpec.lean)
+-- [ ] add 1-2 lemmas about deletionIndex uniqueness/basic sanity (optional now, useful later)
+
+-- [x] Boundary.Basis
+-- [x] define canonical k-face enumeration from FiniteFacetComplex ι
+-- [x] ensure deterministic ordering (encoded simplices merge-sorted lex)
+-- [x] define Sage-facing encoding to List (List Nat) for basis comparison
+-- [x] define strict predicates:
+--     validDomainBasis F k dom := dom = canonicalDomainBasisRaw F k
+--     validCodomainBasis F k cod := cod = canonicalCodomainBasisRaw F k
+
+-- [ ] Boundary.Verify
+-- [x] define shapeOK / entryMatches / entriesMatchAll / verifyBoundaryDataCore
+-- [x] define final verifyBoundaryData (conjoin basis checks + core checks)
+-- [ ] add a firstMismatch helper returning (i, j, actual, expected, tau, sigma)
+--     for useful diagnostics
+
+-- [ ] Command integration
+-- [ ] add #check_boundary (or extend #diff) to:
+--     - call Sage "boundary"
+--     - decode domain_basis, codomain_basis, d
+--     - evaluate verifyBoundaryData
+-- [ ] on failure, print first mismatch + basis order used
+-- [ ] (later) rename #diff -> #boundary (or add alias, then deprecate #diff)
+
+-- [ ] Concrete test coverage
+-- [x] positive: triangle passes
+-- [ ] positive: existing bow-tie-like example passes
+-- [x] negative: single sign flip fails
+-- [x] negative: basis permutation fails
+-- [ ] negative: missing/extra simplex in basis fails
+-- [x] negative: wrong matrix shape/ragged rows fails
+
+-- [x] Examples organization
+-- [x] shared concrete complexes in Examples/Examples.lean
+-- [x] category test files:
+--     - Examples/TestSpec.lean
+--     - Examples/TestBasis.lean
+--     - Examples/TestVerify.lean
+-- [x] Examples/Example.lean as aggregator import module
+
+-- [ ] SNF + homology (after boundary verifier is stable)
+-- [ ] use Sage/#snf on verified boundary matrices d₁, d₂
+-- [ ] connect certified SNF output to homology statements
+-- [ ] prove/record target H_n results for chosen example complexes

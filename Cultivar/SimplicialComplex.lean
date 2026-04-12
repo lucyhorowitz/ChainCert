@@ -32,6 +32,14 @@ def ASC_of_FFC (F : FiniteFacetComplex ι) : AbstractSimplicialComplex ι where
     obtain ⟨f, hf, hv⟩ := F.vertex_mem v
     exact ⟨f, hf,Finset.singleton_subset_iff.mpr hv⟩
 
+/-- Serialize facets for Sage transport.
+
+Each facet is canonically ordered by vertex (`sort (· ≤ ·)`), then each vertex
+is encoded by its index in the global order on `Finset.univ`.
+
+This is an interop encoding (`List (List Nat)`) used for JSON/Sage requests.
+For boundary specification and sign conventions inside Lean, prefer
+`Cultivar.Boundary.Spec.orientFace`, which stays in vertex type `ι`. -/
 def FiniteFacetComplex.toRawFacets (F : FiniteFacetComplex ι) : List (List ℕ) :=
   let order := (Finset.univ : Finset ι).sort (· ≤ ·)
   (F.facets.image (fun f => (f.sort (· ≤ ·)).map (order.idxOf ·))).sort (· ≤ ·)

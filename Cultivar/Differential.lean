@@ -1,7 +1,11 @@
 import Cultivar.SageServer
+import Cultivar.SageEncode
+import Cultivar.SageDecode
 import Cultivar.SimplicialComplex
+import Cultivar.Boundary.Verify
 
 open Lean Elab Tactic Meta Term IO Process
+open Cultivar.SageDecode
 
 unsafe def evalRawFacets (ffcExpr : Expr) : MetaM (List (List Nat)) := do
   let callExpr ← mkAppM ``FiniteFacetComplex.toRawFacets #[ffcExpr]
@@ -11,33 +15,97 @@ unsafe def evalRawFacets (ffcExpr : Expr) : MetaM (List (List Nat)) := do
 @[implemented_by evalRawFacets]
 opaque evalRawFacetsSafe (ffcExpr : Expr) : MetaM (List (List Nat))
 
-unsafe def evalNatExpr (e : Expr) : MetaM Nat :=
-  Lean.Meta.evalExpr Nat (mkConst ``Nat) e
+private def formatNatRow (row : List Nat) : String :=
+  "[" ++ ", ".intercalate (row.map toString) ++ "]"
 
-@[implemented_by evalNatExpr]
-opaque evalNatSafe (e : Expr) : MetaM Nat
+private def formatIntRow (row : List Int) : String :=
+  "[" ++ ", ".intercalate (row.map toString) ++ "]"
+
+private def formatNatMatrix (rows : List (List Nat)) : String :=
+  String.intercalate "\n" (rows.map formatNatRow)
+
+private def formatIntMatrix (rows : List (List Int)) : String :=
+  String.intercalate "\n" (rows.map formatIntRow)
+
+private def logBoundaryData (n : Nat) (dom cod : List (List Nat)) (d : List (List Int)) :
+    MetaM Unit := do
+  logInfo m!"∂_{n} : C_{n} → C_{n - 1}"
+  logInfo m!"domain basis (columns):\n{formatNatMatrix dom}"
+  logInfo m!"codomain basis (rows):\n{formatNatMatrix cod}"
+  logInfo m!"matrix:\n{formatIntMatrix d}"
+
+def fetchBoundaryData (ffcExpr nExpr : Expr) :
+    MetaM (Nat × List (List Nat) × List (List Nat) × List (List Int)) := do
+    let stype ← inferType ffcExpr
+    let (``FiniteFacetComplex, #[_]) := stype.getAppFnArgs
+    | throwError "expected FiniteFacetComplex type, got {stype}"
+    let n ← evalNatSafe nExpr
+    let facets ← evalRawFacetsSafe ffcExpr
+    logInfo m!"n = {n}, facets = {facets}"
+    let req : Json := Json.mkObj [
+      ("op", toJson "boundary"),
+      ("facets", toJson facets),
+      ("n", toJson n)
+    ]
+    let json ← sendSageRequest req
+    let domJson ← IO.ofExcept (json.getObjVal? "domain_basis")
+    let dJson ← IO.ofExcept (json.getObjVal? "d")
+    let codJson ← IO.ofExcept (json.getObjVal? "codomain_basis")
+    let dom ← decodeNatMatrix domJson
+    let cod ← decodeNatMatrix codJson
+    let d ← decodeIntMatrix dJson
+    pure (n, dom, cod, d)
+
+unsafe def evalBoundaryCheck
+    (ffcExpr nExpr : Expr)
+    (dom cod : List (List Nat))
+    (d : List (List Int)) : MetaM Bool := do
+  let verifyExpr ← mkAppM ``verifyBoundaryData #[ffcExpr, nExpr, toExpr dom, toExpr cod, toExpr d]
+  let okExpr ← mkAppM ``decide #[verifyExpr]
+  Lean.Meta.evalExpr Bool (mkConst ``Bool) okExpr
+
+@[implemented_by evalBoundaryCheck]
+opaque evalBoundaryCheckSafe
+    (ffcExpr nExpr : Expr)
+    (dom cod : List (List Nat))
+    (d : List (List Int)) : MetaM Bool
+
+unsafe def evalFirstMismatch
+    (dom cod : List (List Nat))
+    (d : List (List Int)) : MetaM (Option BoundaryMismatch) := do
+  let mismatchExpr ← mkAppM ``firstMismatch #[toExpr dom, toExpr cod, toExpr d]
+  let mismatchTy ← mkAppM ``Option #[mkConst ``BoundaryMismatch]
+  Lean.Meta.evalExpr (Option BoundaryMismatch) mismatchTy mismatchExpr
+
+@[implemented_by evalFirstMismatch]
+opaque evalFirstMismatchSafe
+    (dom cod : List (List Nat))
+    (d : List (List Int)) : MetaM (Option BoundaryMismatch)
 
 elab "#diff" s:term "," n:term : command =>
   Lean.Elab.Command.liftTermElabM do
-  let sexpr ← Lean.Elab.Term.elabTerm s none
-  let nexpr ← Lean.Elab.Term.elabTerm n (some (mkConst ``Nat))
-  Lean.Elab.Term.synthesizeSyntheticMVarsNoPostponing
-  let stype ← Lean.Meta.inferType sexpr
-  let (``FiniteFacetComplex, #[_ιExpr]) := stype.getAppFnArgs
-  | throwError "expected FiniteFacetComplex type, got {stype}"
-  let n ← evalNatSafe nexpr
-  let facets ← evalRawFacetsSafe sexpr
-  logInfo m!"n = {n}, facets = {facets}"
-  let req : Json := Json.mkObj [
-    ("op", toJson "boundary"),
-    ("facets", toJson facets),
-    ("n", toJson n)
-  ]
-  let json ← sendSageRequest req
-  let status ← IO.ofExcept (json.getObjVal? "status")
-  let dom ← IO.ofExcept (json.getObjVal? "domain_basis")
-  let d ← IO.ofExcept (json.getObjVal? "d")
-  let cod ← IO.ofExcept (json.getObjVal? "codomain_basis")
+    let sExpr ← Lean.Elab.Term.elabTerm s none
+    let nExpr ← Lean.Elab.Term.elabTerm n (some (mkConst ``Nat))
+    Lean.Elab.Term.synthesizeSyntheticMVarsNoPostponing
+    let (k, dom, cod, d) ← fetchBoundaryData sExpr nExpr
+    logBoundaryData k dom cod d
 
-  -- s should be a FiniteFacetComplex ι; n : Nat is the dimension of the
-  -- differential you want
+elab "#check_boundary" m:term "," n:term : command =>
+  Lean.Elab.Command.liftTermElabM do
+    let mExpr ← Lean.Elab.Term.elabTerm m none
+    let nExpr ← Lean.Elab.Term.elabTerm n (some (mkConst ``Nat))
+    Lean.Elab.Term.synthesizeSyntheticMVarsNoPostponing
+    let (k, dom, cod, d) ← fetchBoundaryData mExpr nExpr
+    logBoundaryData k dom cod d
+    let ok ← evalBoundaryCheckSafe mExpr nExpr dom cod d
+    if ok then
+      logInfo "boundary check: PASS"
+    else
+      let mismatch ← evalFirstMismatchSafe dom cod d
+      match mismatch with
+      | some mm =>
+          logInfo m!"boundary check: FAIL at (row={mm.i}, col={mm.j})"
+          logInfo m!"actual={mm.actual}, expected={mm.expected}"
+          logInfo m!"tau(row simplex)={mm.τ}, sigma(col simplex)={mm.σ}"
+      | none =>
+          logInfo "boundary check: FAIL (basis mismatch and/or shape mismatch before entry checks)"

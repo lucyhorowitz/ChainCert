@@ -1,4 +1,5 @@
 import Cultivar.SageServer
+import Cultivar.SageEncode
 
 open Lean Elab Tactic Meta Term IO Process
 
