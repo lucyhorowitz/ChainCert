@@ -18,24 +18,38 @@
 -- [ ] Boundary.Verify
 -- [x] define shapeOK / entryMatches / entriesMatchAll / verifyBoundaryDataCore
 -- [x] define final verifyBoundaryData (conjoin basis checks + core checks)
--- [ ] add a firstMismatch helper returning (i, j, actual, expected, tau, sigma)
+-- [x] add a firstMismatch helper returning (i, j, actual, expected, tau, sigma)
 --     for useful diagnostics
+-- [x] add Bool/Prop bridge helpers:
+--     validDomainBasisB / validCodomainBasisB / verifyBoundaryDataCoreB / verifyBoundaryDataB
+--     + _eq_true_iff lemmas and `verified_of_check_true`
 
 -- [ ] Command integration
--- [ ] add #check_boundary (or extend #diff) to:
+-- [x] add #diff output command (pretty-prints bases + matrix from Sage)
+-- [x] add #boundary_check command:
 --     - call Sage "boundary"
 --     - decode domain_basis, codomain_basis, d
 --     - evaluate verifyBoundaryData
--- [ ] on failure, print first mismatch + basis order used
--- [ ] (later) rename #diff -> #boundary (or add alias, then deprecate #diff)
+-- [x] on failure, print diagnostics:
+--     - domOK / codOK / coreOK
+--     - first mismatch (i, j, actual, expected, tau, sigma)
+-- [x] add #boundary_goal command (emit theorem-ready verifyBoundaryData goal)
+-- [x] rename #diff -> #boundary
 
 -- [ ] Concrete test coverage
 -- [x] positive: triangle passes
--- [ ] positive: existing bow-tie-like example passes
+-- [ ] positive: existing bow-tie-like example passes (command run + theorem form)
 -- [x] negative: single sign flip fails
 -- [x] negative: basis permutation fails
 -- [ ] negative: missing/extra simplex in basis fails
 -- [x] negative: wrong matrix shape/ragged rows fails
+
+-- [x] Theorem/tactic bridge
+-- [x] add theorem-style examples sourced from command-emitted goals
+--     (triangle + Klein bottle ∂₁ in Examples/Examples.lean)
+-- [x] prototype a tactic (`boundary_verify`) that closes
+--     `verifyBoundaryData ...` by computation (native_decide)
+-- [x] fail tactic with firstMismatch diagnostics when check is false
 
 -- [x] Examples organization
 -- [x] shared concrete complexes in Examples/Examples.lean

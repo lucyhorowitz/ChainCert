@@ -1,5 +1,6 @@
 import Cultivar.SimplicialComplex
-import Cultivar.Differential
+import Cultivar.Boundary.Boundary
+import Cultivar.Boundary.Tactic
 
 /-! Shared concrete simplicial complexes used across example/test files. -/
 
@@ -25,3 +26,35 @@ def kleinBottleFFC : FiniteFacetComplex (Fin 9) where
 #boundary bowTieFFC, 1
 #boundary_check bowTieFFC, 1
 #boundary_goal bowTieFFC, 1
+
+#boundary_goal kleinBottleFFC, 1
+
+example : verifyBoundaryData triangleFFC 1
+    [[0, 1], [0, 2], [1, 2]]
+    [[0], [1], [2]]
+    [[-1, -1, 0], [1, 0, -1], [0, 1, 1]] := by
+  boundary_verify
+
+/- Negative case: one sign flipped in the last row. Uncomment to see the
+`boundary_verify` failure message with `firstMismatch` diagnostics. -/
+-- example : verifyBoundaryData triangleFFC 1
+--     [[0, 1], [0, 2], [1, 2]]
+--     [[0], [1], [2]]
+--     [[-1, -1, 0], [1, 0, -1], [0, 1, -1]] := by
+--   boundary_verify
+
+example : verifyBoundaryData kleinBottleFFC 1
+    [[0, 1], [0, 2], [0, 3], [0, 5], [0, 6], [0, 7], [1, 2], [1, 3], [1, 4], [1, 6], [1, 8],
+     [2, 4], [2, 5], [2, 7], [2, 8], [3, 4], [3, 5], [3, 6], [3, 8], [4, 5], [4, 6], [4, 7],
+     [5, 7], [5, 8], [6, 7], [6, 8], [7, 8]]
+    [[0], [1], [2], [3], [4], [5], [6], [7], [8]]
+    [[-1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+     [1, 0, 0, 0, 0, 0, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+     [0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, -1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+     [0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, -1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0],
+     [0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, -1, -1, -1, 0, 0, 0, 0, 0],
+     [0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 0, 0, -1, -1, 0, 0, 0],
+     [0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 0, 0, 0, -1, -1, 0],
+     [0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 1, 0, -1],
+     [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 1, 1]] := by
+  boundary_verify
