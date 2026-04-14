@@ -73,7 +73,7 @@ def stringListToMatString (rows : List (List String)) : String :=
 
 /-- Meta-level evaluation of an arbitrary `Nat`-valued `Expr`. Used by command
 elaborators that accept a `Nat` argument and need the numeric value at elab
-time (e.g. the dimension in `#diff K, n`). Handles any term form — literals,
+time (e.g. the dimension in `#boundary K, n`). Handles any term form — literals,
 named definitions, or arithmetic expressions — because it actually compiles
 and runs the expression rather than pattern-matching on `.lit`. -/
 unsafe def evalNatExpr (e : Expr) : MetaM Nat :=

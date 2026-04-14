@@ -99,7 +99,7 @@ opaque evalFirstMismatchSafe
     (dom cod : List (List Nat))
     (d : List (List Int)) : MetaM (Option BoundaryMismatch)
 
-elab "#diff" s:term "," n:term : command =>
+elab "#boundary" s:term "," n:term : command =>
   Lean.Elab.Command.liftTermElabM do
     let sExpr ← Lean.Elab.Term.elabTerm s none
     let nExpr ← Lean.Elab.Term.elabTerm n (some (mkConst ``Nat))
