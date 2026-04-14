@@ -1,4 +1,4 @@
-import Cultivar.SNF
+import Cultivar.SNF.Core
 import Cultivar.SageServer
-import Cultivar.SNFCommand
+import Cultivar.SNF.Command
 import Cultivar.Examples.Example

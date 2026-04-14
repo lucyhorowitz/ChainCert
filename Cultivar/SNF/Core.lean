@@ -38,19 +38,26 @@ structure CertificateSNF (A : Matrix (Fin m) (Fin n) R) where
   Vinv : Matrix (Fin n) (Fin n) R
   D : Matrix (Fin m) (Fin n) R
   r : ℕ
-  hr : r ≤ min m n
-  hdiag : IsDiagonal D
+  hdiag : IsDiagonal D := by decide
   hrank : ∀ (i : Fin (min m n)), diagEntry D i = 0 ↔ r ≤ i.val
-  hUUinv : U * Uinv = 1
-  hUinvU : Uinv * U = 1
-  hVVinv : V * Vinv = 1
-  hVinvV : Vinv * V = 1
-  heq : U * A * V = D
+  hUUinv : U * Uinv = 1 := by native_decide
+  hVVinv : V * Vinv = 1 := by native_decide
+  heq : U * A * V = D  := by native_decide
   hdiv :
     ∀ (i : Fin (min m n)) (hi : i.val + 1 < min m n),
       diagEntry D i ∣ diagEntry D ⟨i.val + 1, by omega⟩
 
 namespace CertificateSNF
+
+omit [IsDomain R] [IsPrincipalIdealRing R] in
+/-- Right-inverse flip: `Uinv * U = 1` follows from `U * Uinv = 1` over a CommRing. -/
+lemma hUinvU (cert : CertificateSNF A) : cert.Uinv * cert.U = 1 :=
+  mul_eq_one_comm.mp cert.hUUinv
+
+omit [IsDomain R] [IsPrincipalIdealRing R] in
+/-- Right-inverse flip: `Vinv * V = 1` follows from `V * Vinv = 1` over a CommRing. -/
+lemma hVinvV (cert : CertificateSNF A) : cert.Vinv * cert.V = 1 :=
+  mul_eq_one_comm.mp cert.hVVinv
 
 omit [IsDomain R] [IsPrincipalIdealRing R] in
 lemma hU (cert : CertificateSNF A) : IsUnit cert.U.det :=

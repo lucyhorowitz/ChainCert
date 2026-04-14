@@ -2,8 +2,8 @@ import Mathlib.Data.Matrix.Basic
 import Mathlib.LinearAlgebra.Matrix.Notation
 import Mathlib.LinearAlgebra.Matrix.Determinant.Basic
 import Mathlib.AlgebraicTopology.SimplicialComplex.Basic
-import Cultivar.SNF
-import Cultivar.SNFCommand
+import Cultivar.SNF.Core
+import Cultivar.SNF.Command
 
 variable {ι : Type} [DecidableEq ι] [Fintype ι] [LinearOrder ι]
 

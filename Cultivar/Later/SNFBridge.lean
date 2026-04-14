@@ -1,4 +1,4 @@
-import Cultivar.SNF
+import Cultivar.SNF.Core
 
 /-! # Bridge to Mathlib's SmithNormalForm
 
