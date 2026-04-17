@@ -119,6 +119,10 @@ bases) between actual and expected boundary coefficients, if any. -/
 def firstMismatch (dom cod : List (List Nat)) (d : List (List Int)) : Option BoundaryMismatch :=
   firstMismatchInRows dom cod d (List.range cod.length)
 
+theorem firstMismatch_eq_none_iff_verifyBoundaryDataCore
+    (dom cod : List (List Nat)) (d : List (List Int)) :
+    firstMismatch dom cod d = none ↔ verifyBoundaryDataCore (ι := Nat) dom cod d := by
+  sorry
 
 theorem verifyBoundaryDataB_eq_true_iff (F : FiniteFacetComplex ι) (k : Nat) (dom cod : List (List Nat)) (d : List (List Int)) :
     verifyBoundaryDataB F k dom cod d = true ↔ verifyBoundaryData F k dom cod d := by
