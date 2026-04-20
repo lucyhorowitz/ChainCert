@@ -19,8 +19,17 @@ instance {α : Type*} {m n : ℕ} [Zero α] [DecidableEq α] (M : Matrix (Fin m)
     unfold IsDiagonal
     infer_instance
 
-variable {R : Type*} [CommRing R] [IsDomain R] [IsPrincipalIdealRing R]
+variable {R : Type*} [CommRing R] [IsDomain R] [IsPrincipalIdealRing R] [DecidableEq R]
 variable (A : Matrix (Fin m) (Fin n) R)
+
+/-- The first diagonal index where `D` is zero; returns `min m n` if no diagonal entry is zero. -/
+def firstZeroDiag [DecidableEq R] (D : Matrix (Fin m) (Fin n) R) : ℕ :=
+  let rec go : List (Fin (min m n)) → Option (Fin (min m n))
+    | [] => none
+    | i :: is => if diagEntry D i = 0 then some i else go is
+  match go (List.finRange (min m n)) with
+  | some i => i.val
+  | none => min m n
 
 /-- The linear map `R^n → R^m` represented by a matrix `A` via `mulVec`. -/
 def matLin (A : Matrix (Fin m) (Fin n) R) :
@@ -31,21 +40,20 @@ def matLin (A : Matrix (Fin m) (Fin n) R) :
 def matRange (A : Matrix (Fin m) (Fin n) R) : Submodule R (Fin m → R) :=
   LinearMap.range (matLin A)
 
-structure CertificateSNF (A : Matrix (Fin m) (Fin n) R) where
+structure CertificateSNF [DecidableEq R] (A : Matrix (Fin m) (Fin n) R) where
   U : Matrix (Fin m) (Fin m) R
   Uinv : Matrix (Fin m) (Fin m) R
   V : Matrix (Fin n) (Fin n) R
   Vinv : Matrix (Fin n) (Fin n) R
   D : Matrix (Fin m) (Fin n) R
-  r : ℕ
-  hdiag : IsDiagonal D := by decide
-  hrank : ∀ (i : Fin (min m n)), diagEntry D i = 0 ↔ r ≤ i.val
+  r : ℕ := firstZeroDiag D
+  hdiag : IsDiagonal D := by native_decide
+  hrank : ∀ (i : Fin (min m n)), diagEntry D i = 0 ↔ r ≤ i.val := by native_decide
   hUUinv : U * Uinv = 1 := by native_decide
   hVVinv : V * Vinv = 1 := by native_decide
   heq : U * A * V = D  := by native_decide
-  hdiv :
-    ∀ (i : Fin (min m n)) (hi : i.val + 1 < min m n),
-      diagEntry D i ∣ diagEntry D ⟨i.val + 1, by omega⟩
+  hdiv : ∀ i j : Fin (min m n), i.val + 1 = j.val →
+           diagEntry D i ∣ diagEntry D j := by native_decide
 
 namespace CertificateSNF
 

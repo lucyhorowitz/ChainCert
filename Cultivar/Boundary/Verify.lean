@@ -119,10 +119,99 @@ bases) between actual and expected boundary coefficients, if any. -/
 def firstMismatch (dom cod : List (List Nat)) (d : List (List Int)) : Option BoundaryMismatch :=
   firstMismatchInRows dom cod d (List.range cod.length)
 
-theorem firstMismatch_eq_none_iff_verifyBoundaryDataCore
+/-- The mismatch flag for a constructed boundary-entry payload is false exactly when
+the actual and expected optional entries agree. -/
+lemma isMismatchedB_mkMismatch_eq_false_iff
+    (dom cod : List (List Nat)) (d : List (List Int)) (i j : Nat) :
+    isMismatchedB (mkMismatch dom cod d i j) = false ↔
+      getEntry? d i j = expectedEntry? dom cod i j := by
+  simp [mkMismatch, isMismatchedB]
+
+/-- A fixed-row column scan returns `none` exactly when all scanned column indices
+match the boundary entry specification at that row. -/
+lemma firstMismatchInCols_eq_none_iff
+    (dom cod : List (List Nat)) (d : List (List Int)) (i : Nat) (js : List Nat) :
+    firstMismatchInCols dom cod d i js = none ↔
+      ∀ j ∈ js, getEntry? d i j = expectedEntry? dom cod i j := by
+  induction js with
+  | nil => simp [firstMismatchInCols]
+  | cons j js ih =>
+      by_cases hm : isMismatchedB (mkMismatch dom cod d i j) = true
+      · have hhead : getEntry? d i j ≠ expectedEntry? dom cod i j := by
+          intro heq
+          have hfalse :
+              isMismatchedB (mkMismatch dom cod d i j) = false :=
+            (isMismatchedB_mkMismatch_eq_false_iff dom cod d i j).2 heq
+          rw [hm] at hfalse
+          trivial
+        simp [firstMismatchInCols, hm, hhead]
+      · have hmfalse : isMismatchedB (mkMismatch dom cod d i j) = false := by
+          cases h : isMismatchedB (mkMismatch dom cod d i j) <;> simp [h] at hm ⊢
+        have hhead : getEntry? d i j = expectedEntry? dom cod i j :=
+          (isMismatchedB_mkMismatch_eq_false_iff dom cod d i j).1 hmfalse
+        simp [firstMismatchInCols, hmfalse, ih, hhead, List.mem_cons]
+
+/-- A row scan returns `none` exactly when every scanned row and in-range column pair
+matches the boundary entry specification. -/
+lemma firstMismatchInRows_eq_none_iff
+    (dom cod : List (List Nat)) (d : List (List Int)) (is : List Nat) :
+    firstMismatchInRows dom cod d is = none ↔
+      ∀ i ∈ is, ∀ j ∈ List.range dom.length, getEntry? d i j = expectedEntry? dom cod i j := by
+  induction is with
+  | nil =>
+      simp [firstMismatchInRows]
+  | cons i0 is ih =>
+      constructor
+      · intro h i' hi' j hj
+        rcases List.mem_cons.mp hi' with rfl | hi_tail
+        · have hcols : firstMismatchInCols dom cod d i' (List.range dom.length) = none := by
+            cases hci : firstMismatchInCols dom cod d i' (List.range dom.length) with
+            | none => exact Option.isNone_iff_eq_none.mp rfl
+            | some b =>
+                simp [firstMismatchInRows, hci] at h
+          exact (firstMismatchInCols_eq_none_iff dom cod d i' (List.range dom.length)).1 hcols j hj
+        · have hcols : firstMismatchInCols dom cod d i0 (List.range dom.length) = none := by
+            cases hci : firstMismatchInCols dom cod d i0 (List.range dom.length) with
+            | none => exact Option.isNone_iff_eq_none.mp rfl
+            | some b =>
+                simp [firstMismatchInRows, hci] at h
+          have hrows : firstMismatchInRows dom cod d is = none := by
+            simpa [firstMismatchInRows, hcols] using h
+          exact (ih.1 hrows) i' hi_tail j hj
+      · intro h
+        have hcols : firstMismatchInCols dom cod d i0 (List.range dom.length) = none := by
+          apply (firstMismatchInCols_eq_none_iff dom cod d i0 (List.range dom.length)).2
+          intro j hj
+          exact h i0 (by simp) j hj
+        have hrows : firstMismatchInRows dom cod d is = none := by
+          apply ih.2
+          intro i' hi' j hj
+          exact h i' (List.mem_cons_of_mem i0 hi') j hj
+        simp [firstMismatchInRows, hcols, hrows]
+
+/-- Boolean-form global entry check is equivalent to pointwise agreement on all
+indices in the codomain/domain basis rectangle. -/
+lemma entriesMatchAll_iff_all_entries_match
     (dom cod : List (List Nat)) (d : List (List Int)) :
-    firstMismatch dom cod d = none ↔ verifyBoundaryDataCore (ι := Nat) dom cod d := by
-  sorry
+    entriesMatchAll (ι := Nat) dom cod d ↔
+      ∀ i ∈ List.range cod.length, ∀ j ∈ List.range dom.length,
+        getEntry? d i j = expectedEntry? dom cod i j := by
+  constructor
+  · intro h i hi j hj
+    simp_all only [entriesMatchAll, List.all_eq_true, List.mem_range, decide_eq_true_eq]
+    apply h i hi j hj
+  · intro h
+    simp_all only [List.mem_range, entriesMatchAll, List.all_eq_true, decide_eq_true_eq]
+    intro i hi j hj
+    exact (h i hi j ∘ fun a ↦ hj) dom
+
+/-- Entry-level mismatch search succeeds (`none`) exactly when all in-range entries
+satisfy `entriesMatchAll`. -/
+theorem firstMismatch_eq_none_iff_entriesMatchAll
+    (dom cod : List (List Nat)) (d : List (List Int)) :
+    firstMismatch dom cod d = none ↔ entriesMatchAll (ι := Nat) dom cod d := by
+  simp_all only [entriesMatchAll_iff_all_entries_match,
+    List.mem_range, firstMismatch, firstMismatchInRows_eq_none_iff]
 
 theorem verifyBoundaryDataB_eq_true_iff (F : FiniteFacetComplex ι) (k : Nat) (dom cod : List (List Nat)) (d : List (List Int)) :
     verifyBoundaryDataB F k dom cod d = true ↔ verifyBoundaryData F k dom cod d := by

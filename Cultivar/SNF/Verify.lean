@@ -3,16 +3,9 @@ import Mathlib.Data.Matrix.Basic
 import Mathlib.Tactic
 
 variable {α : Type*} {m n : ℕ}
-variable {R : Type*} [Zero R] [DecidableEq R]
+variable {R : Type*} [CommRing R] [IsDomain R] [IsPrincipalIdealRing R] [DecidableEq R]
 
-/-- The first diagonal index where `D` is zero; returns `min m n` if no diagonal entry is zero. -/
-def firstZeroDiag (D : Matrix (Fin m) (Fin n) R) : ℕ :=
-  let rec go : List (Fin (min m n)) → Option (Fin (min m n))
-    | [] => none
-    | i :: is => if diagEntry D i = 0 then some i else go is
-  match go (List.finRange (min m n)) with
-  | some i => i.val
-  | none => min m n
+
 
 /-! Mismatch catching, for diagnostics -/
 
@@ -148,18 +141,21 @@ def verifyDiagonal? (D : Matrix (Fin m) (Fin n) R) :
   | some e => .error e
   | none => .ok ()
 
+omit [IsDomain R] [IsPrincipalIdealRing R] in
 /-- Off-diagonal mismatch boolean is true exactly when the matrix entry is nonzero. -/
 lemma mkOffDiagMismatch_mismatch_eq_true_iff
     (D : Matrix (Fin m) (Fin n) R) (i : Fin m) (j : Fin n) :
     (mkOffDiagMismatch D i j).mismatch = true ↔ D i j ≠ 0 := by
   simp [mkOffDiagMismatch]
 
+omit [IsDomain R] [IsPrincipalIdealRing R] in
 /-- Off-diagonal mismatch boolean is false exactly when the matrix entry is zero. -/
 lemma mkOffDiagMismatch_mismatch_eq_false_iff
     (D : Matrix (Fin m) (Fin n) R) (i : Fin m) (j : Fin n) :
     (mkOffDiagMismatch D i j).mismatch = false ↔ D i j = 0 := by
   simp [mkOffDiagMismatch]
 
+omit [IsDomain R] [IsPrincipalIdealRing R] in
 /-- Column-scan returns `none` iff all inspected off-diagonal entries satisfy the spec. -/
 lemma firstOffDiagInCols_eq_none_iff
     (D : Matrix (Fin m) (Fin n) R) (i : Fin m) (js : List (Fin n)) :
@@ -175,6 +171,7 @@ lemma firstOffDiagInCols_eq_none_iff
         · simp [firstOffDiagInCols, hij, h0, mkOffDiagMismatch]
       · simp [firstOffDiagInCols, hij, ih]
 
+omit [IsDomain R] [IsPrincipalIdealRing R] in
 /-- Row-scan returns `none` iff all inspected rows satisfy off-diagonal zero constraints. -/
 lemma firstOffDiagInRows_eq_none_iff
     (D : Matrix (Fin m) (Fin n) R) (is : List (Fin m)) :
@@ -215,13 +212,16 @@ lemma firstOffDiagInRows_eq_none_iff
           exact h i' (List.mem_cons_of_mem i0 hi') j hij
         simp [firstOffDiagInRows, hcols, hrows]
 
+omit [IsDomain R] [IsPrincipalIdealRing R] in
 /-- Off-diagonal mismatch search succeeds (`none`) iff `offDiagsZero` holds. -/
 theorem firstOffDiagMismatch_eq_none_iff_offDiagsZero (D : Matrix (Fin m) (Fin n) R) :
     firstOffDiagMismatch D = none ↔ offDiagsZero D := by
   unfold firstOffDiagMismatch offDiagsZero
   simp [firstOffDiagInRows_eq_none_iff]
 
-/-- Zero-tail mismatch search succeeds (`none`) iff all scanned diagonal checks report no mismatch. -/
+omit [IsDomain R] [IsPrincipalIdealRing R] in
+/-- Zero-tail mismatch search succeeds (`none`) iff all scanned diagonal checks
+ report no mismatch. -/
 lemma firstZeroTailMismatch_eq_none_iff_all_false
     (D : Matrix (Fin m) (Fin n) R) :
     firstZeroTailMismatch D = none ↔
@@ -240,13 +240,16 @@ lemma firstZeroTailMismatch_eq_none_iff_all_false
       cases hmk : (mkZeroTailMismatch D k).mismatch <;>
         simp [firstZeroTailMismatch.go, hmk, ih]
 
-/-- Zero-tail mismatch boolean is false exactly when the diagonal entry matches the expected cutoff rule. -/
+omit [IsDomain R] [IsPrincipalIdealRing R] in
+/-- Zero-tail mismatch boolean is false exactly when the diagonal entry
+matches the expected cutoff rule. -/
 lemma mkZeroTailMismatch_mismatch_eq_false_iff
     (D : Matrix (Fin m) (Fin n) R) (k : Fin (min m n)) :
     (mkZeroTailMismatch D k).mismatch = false ↔
       (diagEntry D k = 0 ↔ firstZeroDiag D ≤ k.val) := by
   simp [mkZeroTailMismatch, diagEntry]
 
+omit [IsDomain R] [IsPrincipalIdealRing R] in
 /-- Zero-tail mismatch search succeeds (`none`) iff `zeroTailAt` holds at the inferred cutoff. -/
 theorem firstZeroTailMismatch_eq_none_iff_zeroTailAt (D : Matrix (Fin m) (Fin n) R) :
     firstZeroTailMismatch D = none ↔ zeroTailAt D (firstZeroDiag D) := by
@@ -261,6 +264,7 @@ theorem firstZeroTailMismatch_eq_none_iff_zeroTailAt (D : Matrix (Fin m) (Fin n)
     intro k hk
     exact (mkZeroTailMismatch_mismatch_eq_false_iff D k).2 (hz k)
 
+omit [IsDomain R] [IsPrincipalIdealRing R] in
 /-- Combined mismatch search succeeds (`none`) iff the core diagonal verifier holds. -/
 theorem firstDiagMismatch_eq_none_iff_verifyDiagonalCore (D : Matrix (Fin m) (Fin n) R) :
     firstDiagMismatch D = none ↔ verifyDiagonalCore D := by
@@ -288,6 +292,7 @@ theorem firstDiagMismatch_eq_none_iff_verifyDiagonalCore (D : Matrix (Fin m) (Fi
       (firstZeroTailMismatch_eq_none_iff_zeroTailAt D).2 hzeroCore
     simp [firstDiagMismatch, hoff, hzero]
 
+omit [IsDomain R] [IsPrincipalIdealRing R] in
 theorem verifyDiagonalCoreB_eq_true_iff (D : Matrix (Fin m) (Fin n) R) :
     verifyDiagonalCoreB D = true ↔ verifyDiagonalCore D := by
   constructor
@@ -295,13 +300,14 @@ theorem verifyDiagonalCoreB_eq_true_iff (D : Matrix (Fin m) (Fin n) R) :
   · intro h
     exact decide_eq_true h
 
+omit [IsDomain R] [IsPrincipalIdealRing R] in
 theorem verifiedDiagonal_of_check_true (D : Matrix (Fin m) (Fin n) R) :
     verifyDiagonalCoreB D = true → verifyDiagonalCore D := by
   intro h
   exact (verifyDiagonalCoreB_eq_true_iff D).1 h
 
-variable [CommRing R]
-/-- Core SNF payload verification predicate: diagonal shape plus inverse and factorization checks. -/
+/-- Core SNF payload verification predicate: diagonal shape plus inverse and
+factorization checks. -/
 def verifySNFCore
     (A : Matrix (Fin m) (Fin n) R)
     (U Uinv : Matrix (Fin m) (Fin m) R)
