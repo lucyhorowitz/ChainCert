@@ -17,11 +17,8 @@ instance {α : Type*} {m n : ℕ} [Zero α] [DecidableEq α] (M : Matrix (Fin m)
     unfold IsDiagonal
     infer_instance
 
-variable {R : Type*} [CommRing R] [IsDomain R] [IsPrincipalIdealRing R] [DecidableEq R]
-variable (A : Matrix (Fin m) (Fin n) R)
-
 /-- The first diagonal index where `D` is zero; returns `min m n` if no diagonal entry is zero. -/
-def firstZeroDiag [DecidableEq R] (D : Matrix (Fin m) (Fin n) R) : ℕ :=
+def firstZeroDiag {R : Type*} [Zero R] [DecidableEq R] (D : Matrix (Fin m) (Fin n) R) : ℕ :=
   let rec go : List (Fin (min m n)) → Option (Fin (min m n))
     | [] => none
     | i :: is => if diagEntry D i = 0 then some i else go is
@@ -30,13 +27,16 @@ def firstZeroDiag [DecidableEq R] (D : Matrix (Fin m) (Fin n) R) : ℕ :=
   | none => min m n
 
 /-- The linear map `R^n → R^m` represented by a matrix `A` via `mulVec`. -/
-def matLin (A : Matrix (Fin m) (Fin n) R) :
+def matLin {R : Type*} [CommSemiring R] (A : Matrix (Fin m) (Fin n) R) :
     (Fin n → R) →ₗ[R] (Fin m → R) :=
   Matrix.mulVecLin A
 
 /-- The image submodule of the matrix map `matLin A`. -/
-def matRange (A : Matrix (Fin m) (Fin n) R) : Submodule R (Fin m → R) :=
+def matRange {R : Type*} [CommSemiring R] (A : Matrix (Fin m) (Fin n) R) : Submodule R (Fin m → R) :=
   LinearMap.range (matLin A)
+
+variable {R : Type*} [CommRing R] [IsDomain R] [IsPrincipalIdealRing R] [DecidableEq R]
+variable (A : Matrix (Fin m) (Fin n) R)
 
 structure CertificateSNF [DecidableEq R] (A : Matrix (Fin m) (Fin n) R) where
   U : Matrix (Fin m) (Fin m) R
@@ -74,9 +74,3 @@ lemma hV (cert : CertificateSNF A) : IsUnit cert.V.det :=
   Matrix.isUnit_det_of_left_inverse cert.hVinvV
 
 end CertificateSNF
-
--- Moved to `Cultivar/Later/SNFQuotient.lean`:
---   range-transport theorems (`matRange_D_eq_map_matRange`, converse),
---   `QuotientFromCert` section, `DiagonalInt` section.
--- Parked until there's an actual consumer.
-
