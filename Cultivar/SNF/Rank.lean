@@ -7,22 +7,32 @@ import Cultivar.SNF.Verify
 This file is for lemmas that let us read rank information from SNF/diagonal
 verification data.
 
-Scope for this file:
-- Bridge from diagonal-shape verification (`verifyDiagonalCore`) to rank facts.
-- Keep statements proof-level and reusable by tactics/commands.
-- Avoid tactic implementation details (those belong in `Cultivar/SNF/Tactic.lean`).
-
-Suggested build order:
-1. Define the rank witness you want to expose (typically `firstZeroDiag D`).
-2. Prove local helper lemmas about diagonal entries and the zero-tail predicate.
-3. Prove a main readoff theorem from `verifyDiagonalCore D`.
-4. Add corollaries for the exact goal shapes your automation should close.
 -/
+
+variable {α : Type*} {m n : ℕ}
+variable {R : Type*} [CommRing R] [DecidableEq R]
 
 namespace Cultivar
 namespace SNF
 
-/- TODO: rank-readoff lemmas go here. -/
+theorem zeroTailAt_firstZeroDiag_of_verifyDiag (D : Matrix (Fin m) (Fin n) R) :
+    verifyDiag D → zeroTailAt D (firstZeroDiag D) := by
+  intro h
+  exact h.left.right
+
+theorem diagEntry_eq_zero_iff_ge_firstZeroDiag_of_verifyDiag
+    (D : Matrix (Fin m) (Fin n) R) (i : Fin (min m n)) :
+    verifyDiag D → (diagEntry D i = 0 ↔ firstZeroDiag D ≤ i.val) := by
+  intro h
+  exact (zeroTailAt_firstZeroDiag_of_verifyDiag D h) i
+
+theorem diagEntry_ne_zero_of_lt_firstZeroDiag_of_verifyDiag
+    (D : Matrix (Fin m) (Fin n) R) (i : Fin (min m n)) :
+    verifyDiag D → i.val < firstZeroDiag D → diagEntry D i ≠ 0 := by
+  intro h hlt hz
+  have hiff := (diagEntry_eq_zero_iff_ge_firstZeroDiag_of_verifyDiag D i h)
+  have hge : firstZeroDiag D ≤ i.val := hiff.mp hz
+  exact (Nat.not_le_of_lt hlt) hge
 
 end SNF
 end Cultivar

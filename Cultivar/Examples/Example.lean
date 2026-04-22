@@ -1,9 +1,7 @@
-import Cultivar.Examples.Examples
-import Cultivar.Examples.TestSpec
-import Cultivar.Examples.TestBasis
-import Cultivar.Examples.TestVerify
-import Cultivar.Examples.TestSNFVerify
+import Cultivar.Examples.Complexes
+import Cultivar.Examples.Boundary
+import Cultivar.Examples.SNF
 
 /-!
-Aggregator module for example complexes and boundary-verification test files.
+Aggregator module for focused examples.
 -/

@@ -6,6 +6,7 @@
 
 import Lean
 import Mathlib.LinearAlgebra.Matrix.Defs
+import Cultivar.SageEncode
 
 open Lean
 
@@ -54,6 +55,28 @@ def mkIntExpr (z : Int) : Expr :=
   else
     mkApp (mkConst ``Int.negSucc) (mkRawNatLit (z.natAbs - 1))
 
+def decodeSerializableMatrix
+    {R : Type} [SageSerializable R]
+    (j : Lean.Json) : MetaM (List (List R)) := do
+  let rows ← Cultivar.SageDecode.decodeStringMatrix j
+  rows.mapM fun row =>
+    row.mapM fun s =>
+      match SageSerializable.fromSageString (R := R) s with
+      | some r => pure r
+      | none => throwError s!"snf: failed to decode `{s}` as {SageSerializable.sageName (R := R)}"
+
+/-- Build a matrix from row-major list data, zero-padding out-of-bounds accesses. -/
+def rowsToMatrix {R : Type} [Zero R] (rows : List (List R)) (m n : Nat) :
+    Matrix (Fin m) (Fin n) R :=
+  fun i j => (rows.getD i.val [] |>.getD j.val 0)
+
+/-- Build an expression for `rowsToMatrix rows m n` from an expression
+`rows : List (List R)` and type expression `R`. -/
+def matrixExprOfRows
+    (R rows : Expr) (m n : Nat) : MetaM Expr := do
+  let zeroTy ← Lean.Meta.mkAppM ``Zero #[R]
+  let _zeroInst ← Lean.Meta.synthInstance zeroTy
+  Lean.Meta.mkAppM ``rowsToMatrix #[rows, mkRawNatLit m, mkRawNatLit n]
 
 
 end Cultivar.SageDecode
