@@ -37,6 +37,7 @@ def encodeVertexOrder : List ι :=
 def encodeSimplex (σ : List ι) : List Nat :=
   σ.map (encodeVertexOrder.idxOf ·)
 
+@[reducible]
 def canonicalBasisRaw (F : FiniteFacetComplex ι) (k : Nat) : List (List Nat) :=
   let verts := encodeVertexOrder (ι := ι)
   let candidates := verts.sublistsLen (k + 1)
@@ -58,3 +59,15 @@ instance (F : FiniteFacetComplex ι) (k : Nat) (cod : List (List Nat)) :
     Decidable (validCodomainBasis F k cod) := by
   unfold validCodomainBasis
   infer_instance
+
+@[reducible]
+def cellCount (F : FiniteFacetComplex ι) (k : Nat) : Nat :=
+  (canonicalBasisRaw F k).length
+
+def boundaryMatrix (F : FiniteFacetComplex ι) (k : Nat) :
+    Matrix (Fin (cellCount F k)) (Fin (cellCount F (k+1))) ℤ :=
+  Matrix.of fun (i : Fin (cellCount F k)) (j : Fin
+  (cellCount F (k+1))) =>
+      boundaryCoeff
+        ((canonicalBasisRaw F (k+1))[j.val]'j.isLt)
+        ((canonicalBasisRaw F k)[i.val]'i.isLt)

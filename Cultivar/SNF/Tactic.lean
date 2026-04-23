@@ -25,39 +25,19 @@ and should enrich the local context with certified SNF data for a concrete matri
 
 ## Preconditions
 - `A` should be actual evaluable matrix data (not a fully symbolic matrix variable).
-- Matrix dimensions and entries should be recoverable at elaboration time.
+- Matrix dimensions may be non-literal (e.g. `Fin (cellCount F k)`); the tactic
+  routes through compiled-code evaluation (`evalMatStringListSafe`) so nothing
+  requires the `Fin` arg to reduce in the kernel.
+- Matrix entries must be recoverable at elaboration time via `SageSerializable`.
 
 ## Core workflow
-1. Serialize `A`, call Sage, and obtain `U`, `Uinv`, `D`, `V`, `Vinv`.
-2. Decode back into Lean matrices.
-3. Verify in Lean before introducing results:
-   - diagonal/core checks (shape + zero tail),
-   - inverse checks (`U * Uinv = 1`, `V * Vinv = 1`),
-   - factorization check (`U * A * V = D`),
-   - divisibility chain on diagonal entries.
-4. If verification fails, throw a hard error with useful diagnostics.
-
-## What to add to local context
-Prefer introducing one main object first:
-- `cert : CertificateSNF (A := A)`
-
-Then optionally expose convenient projections/bindings:
-- `cert.D`, `cert.r`
-- diagonal accessor (e.g. `fun i => diagEntry cert.D i`)
-- `cert.heq` (factorization)
-- `cert.hdiv` (divisibility chain)
-
-This keeps downstream use (e.g. homology computations) proof-friendly while
-still allowing easy extraction of diagonal invariants.
-
-## Suggested options
-- default `snf A`: add only `cert`.
-- `snf A (diag)`: also add explicit diagonal data binding/list.
-- `snf A (verbose)`: print Sage payload + verification diagnostics.
-- optional cache control later (`cache` / `no_cache`) if recomputation becomes expensive.
-
-Design preference: center the tactic around `CertificateSNF`; diagonal lists are
-derived convenience data, not the primary artifact. -/
+1. Extract `(finM, finN, R)` Exprs from A's type (no `rawNatLit?`).
+2. Run `matStringList A` via `evalMatStringListSafe` to get a `List (List String)`.
+3. Send to Sage; decode `U`, `Uinv`, `D`, `V`, `Vinv` JSON.
+4. Build U/V/etc. matrix Exprs reusing A's original dim Exprs (so the built
+   `D : Matrix finM finN R` type matches A's type syntactically).
+5. Construct `CertificateSNF A` term; proof fields default to `native_decide`.
+6. Assert `cert : CertificateSNF A` into the goal context. -/
 
 open Lean Elab Tactic Meta Expr
 
@@ -68,22 +48,19 @@ private structure SnfSageJsonPayload where
   V : Lean.Json
   Vinv : Lean.Json
 
-private def ensureSnfInput (AExpr : Expr) : TacticM (Nat × Nat × Expr) := do
+/-- Extract `(finM, finN, mExpr, nExpr, R)` from the type of `AExpr : Matrix (Fin m) (Fin n) R`.
+`mExpr`/`nExpr` are the natural-valued Exprs inside the `Fin _` applications; they
+need *not* reduce to concrete Nat literals. -/
+private def ensureSnfInput (AExpr : Expr) :
+    TacticM (Expr × Expr × Expr × Expr × Expr) := do
   let AType ← inferType AExpr
   let (``Matrix, #[finM, finN, R]) := AType.getAppFnArgs
     | throwError "snf: expected `Matrix (Fin m) (Fin n) R`, got {AType}"
 
-  let (``Fin, #[mExpr0]) := finM.getAppFnArgs
+  let (``Fin, #[mExpr]) := finM.getAppFnArgs
     | throwError "snf: expected row index type `Fin m`, got {finM}"
-  let (``Fin, #[nExpr0]) := finN.getAppFnArgs
+  let (``Fin, #[nExpr]) := finN.getAppFnArgs
     | throwError "snf: expected col index type `Fin n`, got {finN}"
-
-  let mExpr ← whnf mExpr0
-  let nExpr ← whnf nExpr0
-  let some m := mExpr.rawNatLit?
-    | throwError "snf: `m` must be a concrete Nat"
-  let some n := nExpr.rawNatLit?
-    | throwError "snf: `n` must be a concrete Nat"
 
   if AExpr.hasMVar then
     throwError "snf: matrix must be concrete/closed (contains metavariables)"
@@ -91,7 +68,7 @@ private def ensureSnfInput (AExpr : Expr) : TacticM (Nat × Nat × Expr) := do
   let sageSerializableTy ← mkAppM ``SageSerializable #[R]
   let _inst ← synthInstance sageSerializableTy
 
-  pure (m, n, R)
+  pure (finM, finN, mExpr, nExpr, R)
 
 private def certTypeFor (AExpr : Expr) : MetaM Expr :=
   mkAppM ``CertificateSNF #[AExpr]
@@ -108,20 +85,10 @@ private def addCertToContext
   let (_, goal') ← goal.note certName certExpr (some certTy)
   pure goal'
 
-private def callSnfSageJson
-    (AExpr : Expr) (m n : Nat) : TacticM SnfSageJsonPayload := do
-  let finMType ← mkAppM ``Fin #[mkRawNatLit m]
-  let finNType ← mkAppM ``Fin #[mkRawNatLit n]
-  let mut rows : List (List String) := []
-  for i in List.range m do
-    let mut row : List String := []
-    for j in List.range n do
-      let iExpr ← mkNumeral finMType i
-      let jExpr ← mkNumeral finNType j
-      let entry := mkApp2 AExpr iExpr jExpr
-      let s ← evalSageStringSafe entry
-      row := row ++ [s]
-    rows := rows ++ [row]
+/-- Call Sage for SNF. Serializes `A` via `matStringList` → `evalMatStringListSafe`
+(compiled-code path; does not require `Fin` dims to reduce in the kernel). -/
+private def callSnfSageJson (AExpr : Expr) : TacticM SnfSageJsonPayload := do
+  let rows ← evalMatStringListSafe AExpr
   let matStr := stringListToMatString rows
   let reqJson := Lean.Json.mkObj [
     ("op", Lean.Json.str "snf"),
@@ -142,7 +109,7 @@ unsafe def evalBoolExpr (e : Expr) : MetaM Bool :=
 opaque evalBoolExprSafe (e : Expr) : MetaM Bool
 
 unsafe def evalStringExpr (e : Expr) : MetaM String :=
-  Lean.Meta.evalExpr String (mkConst ``String) e
+  Lean.Meta.evalExpr String (mkConst ``String []) e
 
 @[implemented_by evalStringExpr]
 opaque evalStringExprSafe (e : Expr) : MetaM String
@@ -174,15 +141,20 @@ private def mkListExpr (α : Expr) (xs : List Expr) : TacticM Expr := do
     (fun x acc => mkAppOptM ``List.cons #[some α, some x, some acc])
     nilExpr
 
+/-- Build `rowsToMatrix rows mExpr nExpr : Matrix (Fin mExpr) (Fin nExpr) R`.
+`mExpr`/`nExpr` are arbitrary Nat-valued Exprs (not necessarily literals). -/
 private def rowsExprToMatrixExpr
-    (R : Expr) (rows : List (List Expr)) (m n : Nat) : TacticM Expr := do
+    (R : Expr) (rows : List (List Expr)) (mExpr nExpr : Expr) : TacticM Expr := do
   let rowExprs ← rows.mapM (mkListExpr R)
   let listR ← mkAppM ``List #[R]
   let rowsExpr ← mkListExpr listR rowExprs
-  Cultivar.SageDecode.matrixExprOfRows R rowsExpr m n
+  let zeroTy ← mkAppM ``Zero #[R]
+  let _zeroInst ← synthInstance zeroTy
+  mkAppM ``Cultivar.SageDecode.rowsToMatrix #[rowsExpr, mExpr, nExpr]
 
-private def matrixTyExpr (R : Expr) (m n : Nat) : MetaM Expr :=
-  mkAppM ``Matrix #[mkApp (mkConst ``Fin) (mkRawNatLit m), mkApp (mkConst ``Fin) (mkRawNatLit n), R]
+/-- Build `Matrix finM finN R` as an Expr, reusing existing `Fin _` Exprs directly. -/
+private def matrixTyExprFromFin (R finM finN : Expr) : MetaM Expr :=
+  mkAppM ``Matrix #[finM, finN, R]
 
 private def ensureMatrixExprHasType (matrixExpr expectedTy : Expr) : TacticM Unit := do
   let gotTy ← inferType matrixExpr
@@ -200,25 +172,25 @@ syntax (name := snfTac) "snf " term : tactic
     | _ => none) |
     throwError "expected `snf A`"
   let AExpr ← elabTerm AStx none
-  let (m, n, R) ← ensureSnfInput AExpr
-  logInfo m!"snf input validated: m={m}, n={n}, ring={R}"
-  let (_payload) ← callSnfSageJson AExpr m n
-  let ⟨uJson, uinvJson, dJson, vJson, vinvJson⟩ := _payload
+  let (finM, finN, mExpr, nExpr, R) ← ensureSnfInput AExpr
+  logInfo m!"snf input validated: m={mExpr}, n={nExpr}, ring={R}"
+  let payload ← callSnfSageJson AExpr
+  let ⟨uJson, uinvJson, dJson, vJson, vinvJson⟩ := payload
   let uRowsExpr ← decodeSerializableRowsExpr R uJson
   let uinvRowsExpr ← decodeSerializableRowsExpr R uinvJson
   let dRowsExpr ← decodeSerializableRowsExpr R dJson
   let vRowsExpr ← decodeSerializableRowsExpr R vJson
   let vinvRowsExpr ← decodeSerializableRowsExpr R vinvJson
 
-  let UExpr ← rowsExprToMatrixExpr R uRowsExpr m m
-  let UinvExpr ← rowsExprToMatrixExpr R uinvRowsExpr m m
-  let DExpr ← rowsExprToMatrixExpr R dRowsExpr m n
-  let VExpr ← rowsExprToMatrixExpr R vRowsExpr n n
-  let VinvExpr ← rowsExprToMatrixExpr R vinvRowsExpr n n
+  let UExpr ← rowsExprToMatrixExpr R uRowsExpr mExpr mExpr
+  let UinvExpr ← rowsExprToMatrixExpr R uinvRowsExpr mExpr mExpr
+  let DExpr ← rowsExprToMatrixExpr R dRowsExpr mExpr nExpr
+  let VExpr ← rowsExprToMatrixExpr R vRowsExpr nExpr nExpr
+  let VinvExpr ← rowsExprToMatrixExpr R vinvRowsExpr nExpr nExpr
 
-  let matMMTy ← matrixTyExpr R m m
-  let matMNTy ← matrixTyExpr R m n
-  let matNNTy ← matrixTyExpr R n n
+  let matMMTy ← matrixTyExprFromFin R finM finM
+  let matMNTy ← matrixTyExprFromFin R finM finN
+  let matNNTy ← matrixTyExprFromFin R finN finN
   ensureMatrixExprHasType UExpr matMMTy
   ensureMatrixExprHasType UinvExpr matMMTy
   ensureMatrixExprHasType DExpr matMNTy

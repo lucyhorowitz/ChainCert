@@ -81,3 +81,12 @@ unsafe def evalNatExpr (e : Expr) : MetaM Nat :=
 
 @[implemented_by evalNatExpr]
 opaque evalNatSafe (e : Expr) : MetaM Nat
+
+unsafe def evalMatStringList (A : Expr) : MetaM (List (List String)) := do
+    let call ← mkAppM ``matStringList #[A]
+    Lean.Meta.evalExpr (List (List String))
+      (mkApp (.const ``List [0]) (mkApp (.const ``List [0]) (.const ``String [])))
+      call
+
+@[implemented_by evalMatStringList]
+opaque evalMatStringListSafe (A : Expr) : MetaM (List (List String))
