@@ -1,65 +1,77 @@
--- Boundary verification roadmap (spec-first, no Lean-generated boundary matrix)
+# Homology certificate — status & plan (updated 2026-05-11)
 
--- [ ] Boundary.Spec
--- [x] define orientFace : Finset ι -> List ι (canonical sorted orientation)
--- [x] define deletionIndex / boundaryCoeff / isBoundaryEntry
--- [x] define safe matrix-data helpers getEntry? / expectedEntry?
--- [x] add small smoke tests for sign and deletion behavior (Examples/TestSpec.lean)
--- [ ] add 1-2 lemmas about deletionIndex uniqueness/basic sanity (optional now, useful later)
+Deadline: Fri May 15. Deliverable: `homology` tactic + `#homology` command working end-to-end on Klein bottle (and one more example), plus Overleaf writeup for Max. Bridge theorem stated but proof deferred — focus is metaprogramming.
 
--- [x] Boundary.Basis
--- [x] define canonical k-face enumeration from FiniteFacetComplex ι
--- [x] ensure deterministic ordering (encoded simplices merge-sorted lex)
--- [x] define Sage-facing encoding to List (List Nat) for basis comparison
--- [x] define strict predicates:
---     validDomainBasis F k dom := dom = canonicalDomainBasisRaw F k
---     validCodomainBasis F k cod := cod = canonicalCodomainBasisRaw F k
+## Architecture (settled)
 
--- [ ] Boundary.Verify
--- [x] define shapeOK / entryMatches / entriesMatchAll / verifyBoundaryDataCore
--- [x] define final verifyBoundaryData (conjoin basis checks + core checks)
--- [x] add a firstMismatch helper returning (i, j, actual, expected, tau, sigma)
---     for useful diagnostics
--- [x] add Bool/Prop bridge helpers:
---     validDomainBasisB / validCodomainBasisB / verifyBoundaryDataCoreB / verifyBoundaryDataB
---     + _eq_true_iff lemmas and `verified_of_check_true`
+Certificate is **exactly two SNF triples**: `certK` for ∂_k, `certM` for M.
+Everything else is derived in Lean or closed by `native_decide`.
 
--- [ ] Command integration
--- [x] add #diff output command (pretty-prints bases + matrix from Sage)
--- [x] add #boundary_check command:
---     - call Sage "boundary"
---     - decode domain_basis, codomain_basis, d
---     - evaluate verifyBoundaryData
--- [x] on failure, print diagnostics:
---     - domOK / codOK / coreOK
---     - first mismatch (i, j, actual, expected, tau, sigma)
--- [x] add #boundary_goal command (emit theorem-ready verifyBoundaryData goal)
--- [x] rename #diff -> #boundary
+`HomologyQuotientCert ∂_k ∂_{k+1}` (in `Cultivar/Homology/Basic.lean`):
+- `certK : CertificateSNF ∂_k`              — U, V, D for ∂_k
+- `hCC : ∂_k * ∂_{k+1} = 0`                 — closed by `native_decide`
+- `M : Matrix (Fin (n - certK.r)) (Fin p) ℤ` — defined as bottom (n-r) rows of V⁻¹·∂_{k+1}
+- `certM : CertificateSNF M`                 — U', V', D' for M
 
--- [ ] Concrete test coverage
--- [x] positive: triangle passes
--- [ ] positive: existing bow-tie-like example passes (command run + theorem form)
--- [x] negative: single sign flip fails
--- [x] negative: basis permutation fails
--- [ ] negative: missing/extra simplex in basis fails
--- [x] negative: wrong matrix shape/ragged rows fails
+`CertificateHomology X k` wraps `HomologyQuotientCert (boundaryK X k) (boundaryK X (k+1))`.
 
--- [x] Theorem/tactic bridge
--- [x] add theorem-style examples sourced from command-emitted goals
---     (triangle + Klein bottle ∂₁ in Examples/Examples.lean)
--- [x] prototype a tactic (`boundary_verify`) that closes
---     `verifyBoundaryData ...` by computation (native_decide)
--- [x] fail tactic with firstMismatch diagnostics when check is false
+Sage's role: untrusted oracle. It produces witnesses (U, V, D, U', V', D'); Lean verifies via `native_decide`. The whole point is that we never trust Sage's conclusion — only check its work.
 
--- [x] Examples organization
--- [x] shared concrete complexes in Examples/Examples.lean
--- [x] category test files:
---     - Examples/TestSpec.lean
---     - Examples/TestBasis.lean
---     - Examples/TestVerify.lean
--- [x] Examples/Example.lean as aggregator import module
+## Done
 
--- [ ] SNF + homology (after boundary verifier is stable)
--- [ ] use Sage/#snf on verified boundary matrices d₁, d₂
--- [ ] connect certified SNF output to homology statements
--- [ ] prove/record target H_n results for chosen example complexes
+- [x] Sage `homology` op extended with `witnesses=true` flag → returns `snf_k`, `snf_M` blocks. Forces `base_ring="ZZ"`, requires `dim`, forbids `reduced=true`. (`scripts/snf_server.py`)
+- [x] `r`-definitional-access: `firstZeroDiag` lives in `SNF/Tactic.lean`; `certK.r` works.
+- [x] `CertificateSNF` machinery + `snf` tactic (`SNF/Tactic.lean`) — template for the `homology` tactic.
+- [x] `HomologyQuotientCert` / `CertificateHomology` structures in `Homology/Basic.lean`.
+
+## This week
+
+### Mon — Sage side ✓ + Lean plumbing
+- [x] Add `witnesses` flag to Sage `homology` op.
+- [ ] Sage smoke test: hit the new op on Klein bottle, verify response shape & non-empty matrices for k=1.
+- [ ] Lean side: extend `SageDecode` if needed to parse the nested `snf_k`/`snf_M` JSON. (Likely reuses existing matrix decoder — just two of them.)
+
+### Tue — `homology` tactic
+- Syntax: `homology X k` where `X : FFC ι`, `k : ℕ`.
+- Mirror `evalSnfTac`:
+  1. Elab X, k. Get ∂_k, ∂_{k+1} via `boundaryK` Exprs.
+  2. Serialize facets + dim, call Sage with `witnesses=true`.
+  3. Decode `snf_k`, `snf_M` into matrix Exprs.
+  4. Build `certK` term (same shape as `snf` tactic produces).
+  5. Build M-the-definition Lean-side: `bottomRows (n - r) (Vinv * ∂_{k+1})`. Index gymnastics with `Fin.cast` if needed.
+  6. Build `certM` against Lean-side M; `native_decide` closes `U'·M·V' = D'`.
+  7. Assemble `HomologyQuotientCert` and `CertificateHomology` terms.
+  8. Assert `hom_cert : CertificateHomology X k` into context.
+
+Risk: M's type is `Matrix (Fin (n - certK.r)) ...` with non-literal Fin dims. The certM check needs `native_decide` to reduce that. If it doesn't reduce cleanly, escape hatch: have Sage also return M; verify `Sage's M = Lean's M` by `native_decide`; carry Sage's M in the cert.
+
+### Wed — `#homology` command does real work
+- Currently a Sage-JSON-printer (`Homology/Command.lean`); rewrite to invoke the `homology` tactic in a synthetic goal, extract the certificate, and pretty-print the homology group from `certM.D.diag`.
+- Output shape: `H_k(X) ≅ ⊕ ℤ/dᵢ ⊕ ℤ^β` with the dᵢ and β read off the SNF diagonal.
+
+### Thu — examples end-to-end
+- `KleinBottleHomology.lean`: actually compute H_*(Klein bottle) via the tactic. Expected: H_0 = ℤ, H_1 = ℤ ⊕ ℤ/2, H_2 = 0.
+- One more: torus or ℝP². Sanity check that the tactic generalizes.
+- Error-message polish.
+
+### Fri — Overleaf writeup for Max
+- Architecture: certificate-driven verification, Sage as untrusted oracle, what the kernel checks vs. what's trusted.
+- The two-SNF certificate. Why M is a definition not a field. The minimal-certificate principle.
+- What's proved vs. axiomatized (bridge theorem statement, proof deferred).
+- Demo: walk through Klein bottle computation end-to-end.
+
+## Deferred (post-Friday)
+
+**Bridge theorem** in `Cultivar/Homology/Bridge.lean` (new file). Statement:
+$$\ker(\partial_k) / \mathrm{im}(\partial_{k+1}) \cong \bigoplus_i \mathbb{Z}/d_i\mathbb{Z} \oplus \mathbb{Z}^{\beta_k}$$
+where $d_i$ are the nonzero non-unit diagonal entries of $D'$ and $\beta_k$ counts zero diagonal entries of $D'$.
+
+Proof sketch: cycle basis $Z$ (last $n-r$ columns of $V$) gives $\ker(\partial_k) \cong \mathbb{Z}^{n-r}$; under this ID, $\mathrm{im}(\partial_{k+1}) = \mathrm{im}(M)$; so the quotient is $\mathrm{coker}(M) \cong \mathrm{coker}(D')$ (unimodular change of basis); read off via Mathlib's PID structure theorem.
+
+For Friday: state as `axiom` (or `theorem … := by sorry`) in `Bridge.lean`. Tactic uses it; kernel sees a hole but the metaprogramming pipeline is end-to-end exercised.
+
+## Open questions to resolve as we go
+
+- 0-dim edge cases: does Sage's `smith_form()` handle 0-row / 0-col matrices? Does Lean's `native_decide` reduce certM when M has 0 rows (i.e., when r = n, no cycles)? Probably yes — but test before relying.
+- Whether to send M from Sage too (cheap insurance against the `Fin (n - r)` reduction headache).
+- Whether `#homology` should also surface Sage's `invariants` answer for comparison / sanity check.
