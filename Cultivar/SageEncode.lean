@@ -90,3 +90,17 @@ unsafe def evalMatStringList (A : Expr) : MetaM (List (List String)) := do
 
 @[implemented_by evalMatStringList]
 opaque evalMatStringListSafe (A : Expr) : MetaM (List (List String))
+
+def rawFacetStringList (facets : List (List
+  ℕ)) : List (List String) :=
+    facets.map (·.map toString)
+
+unsafe def evalRawFacets (e : Expr) : MetaM
+(List (List String)) := do
+  let call ← mkAppM ``rawFacetStringList #[e]
+  Lean.Meta.evalExpr (List (List String))
+    (mkApp (.const ``List [0]) (mkApp (.const ``List [0]) (.const ``String [])))
+    call
+
+@[implemented_by evalRawFacets]
+opaque evalRawFacetsSafe (A : Expr) : MetaM (List (List String))

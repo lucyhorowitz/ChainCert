@@ -173,7 +173,7 @@ syntax (name := snfTac) "snf " term : tactic
     throwError "expected `snf A`"
   let AExpr ← elabTerm AStx none
   let (finM, finN, mExpr, nExpr, R) ← ensureSnfInput AExpr
-  logInfo m!"snf input validated: m={mExpr}, n={nExpr}, ring={R}"
+  -- logInfo m!"snf input validated: m={mExpr}, n={nExpr}, ring={R}"
   let payload ← callSnfSageJson AExpr
   let ⟨uJson, uinvJson, dJson, vJson, vinvJson⟩ := payload
   let uRowsExpr ← decodeSerializableRowsExpr R uJson
@@ -232,5 +232,5 @@ syntax (name := snfTac) "snf " term : tactic
     throwError "snf: internal error, certificate term has wrong type\nactual: {certExprTy}\nexpected: {certTy}"
 
   let goal' ← addCertToContext goal `cert AExpr certExpr
-  logInfo "snf: added `cert : CertificateSNF A` to local context."
+  -- logInfo "snf: added `cert : CertificateSNF A` to local context."
   setGoals [goal']

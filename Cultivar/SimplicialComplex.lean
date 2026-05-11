@@ -13,6 +13,8 @@ structure FiniteFacetComplex ι where
   facets : Finset (Finset ι)
   vertex_mem : ∀ v : ι, ∃ f ∈ facets, v ∈ f
 
+abbrev FFC (ι : Type u) := FiniteFacetComplex ι
+
 def ASC_of_FFC (F : FiniteFacetComplex ι) : AbstractSimplicialComplex ι where
   faces := { s | s.Nonempty ∧ ∃ f ∈ F.facets, s ⊆ f }
   isRelLowerSet_faces := by
