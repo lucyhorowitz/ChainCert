@@ -1,6 +1,7 @@
 import Cultivar.Examples.Complexes
 import Cultivar.Boundary.Verify
 import Cultivar.SNF.Tactic
+import Cultivar.Homology.Tactic
 import Cultivar.Homology.Command
 
 /-!
@@ -20,7 +21,14 @@ Target result:
 * `H₂(Klein; ℤ) = 0`
 -/
 
-#homology kleinBottleFFC, 2
+#homology kleinBottleFFC, 1
+
+example : True := by
+  homology triangleFFC, 1
+  trivial
 
 namespace Cultivar
 namespace Examples
+
+end Examples
+end Cultivar

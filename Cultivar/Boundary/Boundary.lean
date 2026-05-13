@@ -7,13 +7,13 @@ import Cultivar.Boundary.Verify
 open Lean Elab Tactic Meta Term IO Process
 open Cultivar.SageDecode
 
-unsafe def evalRawFacets (ffcExpr : Expr) : MetaM (List (List Nat)) := do
+unsafe def evalRawFacetsNat (ffcExpr : Expr) : MetaM (List (List Nat)) := do
   let callExpr ← mkAppM ``FiniteFacetComplex.toRawFacets #[ffcExpr]
   let tyExpr ← mkAppM ``List #[← mkAppM ``List #[mkConst ``Nat]]
   Lean.Meta.evalExpr (List (List Nat)) tyExpr callExpr
 
-@[implemented_by evalRawFacets]
-opaque evalRawFacetsSafe (ffcExpr : Expr) : MetaM (List (List Nat))
+@[implemented_by evalRawFacetsNat]
+opaque evalRawFacetsNatSafe (ffcExpr : Expr) : MetaM (List (List Nat))
 
 private def formatNatRow (row : List Nat) : String :=
   "[" ++ ", ".intercalate (row.map toString) ++ "]"
@@ -45,7 +45,7 @@ def fetchBoundaryData (ffcExpr nExpr : Expr) :
     let (``FiniteFacetComplex, #[_ιExpr]) := stype.getAppFnArgs
     | throwError "expected FiniteFacetComplex type, got {stype}"
     let n ← evalNatSafe nExpr
-    let facets ← evalRawFacetsSafe ffcExpr
+    let facets ← evalRawFacetsNatSafe ffcExpr
     logInfo m!"n = {n}, facets = {facets}"
     let req : Json := Json.mkObj [
       ("op", toJson "boundary"),

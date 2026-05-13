@@ -14,7 +14,8 @@ Two tactics, sharing all internals (Sage call + Lean-side verification + term
 construction) and differing only in the final step:
 
 - `snf A` — workhorse, goal-agnostic. Asserts `cert : CertificateSNF A` into
-  the local context. Primary driver inside real proofs.
+  the local context. `snf A as hA` uses the provided local name instead.
+  Primary driver inside real proofs.
 - `verify_snf` — closes a goal of shape `CertificateSNF A`. Niche. Uses
   `MVarId.assign` instead of `MVarId.assert` at the end.
 
@@ -162,16 +163,9 @@ private def ensureMatrixExprHasType (matrixExpr expectedTy : Expr) : TacticM Uni
     throwError "snf: internal error, matrix expression has type {gotTy}, expected {expectedTy}"
 
 
-
-syntax (name := snfTac) "snf " term : tactic
-
-@[tactic snfTac] def evalSnfTac : Tactic := fun stx => do
-  let goal ← getMainGoal
-  let some (_, AStx) := (match stx with
-    | `(tactic| snf $A) => some ((), A)
-    | _ => none) |
-    throwError "expected `snf A`"
-  let AExpr ← elabTerm AStx none
+/-- Build a `CertificateSNF AExpr` expression from Sage data, then elaborate and
+type-check it. This is the reusable construction backend for the `snf` tactic. -/
+def mkSNFCertExpr (AExpr : Expr) : TacticM Expr := do
   let (finM, finN, mExpr, nExpr, R) ← ensureSnfInput AExpr
   -- logInfo m!"snf input validated: m={mExpr}, n={nExpr}, ring={R}"
   let payload ← callSnfSageJson AExpr
@@ -205,32 +199,95 @@ syntax (name := snfTac) "snf " term : tactic
   let VStx : TSyntax `term ← Lean.PrettyPrinter.delab VExpr
   let VinvStx : TSyntax `term ← Lean.PrettyPrinter.delab VinvExpr
   let DStx : TSyntax `term ← Lean.PrettyPrinter.delab DExpr
-  let certStx ← `(
-    ({
-      U := $UStx
-      Uinv := $UinvStx
-      V := $VStx
-      Vinv := $VinvStx
-      D := $DStx
-      r := firstZeroDiag $DStx
-      hdiag := by native_decide
-      hrank := by
-        intro i
-        have hdiagOk : verifyDiag (R := $RStx) $DStx := by native_decide
-        simpa using
-          (Cultivar.SNF.diagEntry_eq_zero_iff_ge_firstZeroDiag_of_verifyDiag
-            (R := $RStx) (D := $DStx) (i := i) hdiagOk)
-      hUUinv := by native_decide
-      hVVinv := by native_decide
-      heq := by native_decide
-      hdiv := by native_decide
-    } : CertificateSNF (A := $AStx))
-  )
-  let certExpr ← elabTerm certStx (some certTy)
+  let mStx : TSyntax `term ← Lean.PrettyPrinter.delab mExpr
+  let nStx : TSyntax `term ← Lean.PrettyPrinter.delab nExpr
+
+  let ATypedStx : TSyntax `term ←
+    `(($AStx : Matrix (Fin $mStx) (Fin $nStx) $RStx))
+  let UTypedStx : TSyntax `term ←
+    `(($UStx : Matrix (Fin $mStx) (Fin $mStx) $RStx))
+  let UinvTypedStx : TSyntax `term ←
+    `(($UinvStx : Matrix (Fin $mStx) (Fin $mStx) $RStx))
+  let VTypedStx : TSyntax `term ←
+    `(($VStx : Matrix (Fin $nStx) (Fin $nStx) $RStx))
+  let VinvTypedStx : TSyntax `term ←
+    `(($VinvStx : Matrix (Fin $nStx) (Fin $nStx) $RStx))
+  let DTypedStx : TSyntax `term ←
+    `(($DStx : Matrix (Fin $mStx) (Fin $nStx) $RStx))
+
+  let hdiagTy ← Lean.Elab.Term.elabType (← `(IsDiagonal $DTypedStx))
+  let hdiagExpr ← Lean.Elab.Tactic.elabTerm (← `(by native_decide)) (some hdiagTy)
+
+  let hrankTy ← Lean.Elab.Term.elabType (← `(
+  ∀ (i : Fin (min $mStx $nStx)),
+    diagEntry $DTypedStx i = 0 ↔ firstZeroDiag $DTypedStx ≤ i.val))
+  let hrankExpr ← Lean.Elab.Tactic.elabTerm (← `(
+  by
+    intro i
+    have hdiagOk : verifyDiag (R := $RStx) $DTypedStx := by native_decide
+    simpa using
+      (Cultivar.SNF.diagEntry_eq_zero_iff_ge_firstZeroDiag_of_verifyDiag
+        (R := $RStx) (D := $DTypedStx) (i := i) hdiagOk)
+  )) (some hrankTy)
+
+  let hUUinvTy ← Lean.Elab.Term.elabType (← `($UTypedStx * $UinvTypedStx = 1))
+  let hUUinvExpr ← Lean.Elab.Tactic.elabTerm (← `(by native_decide)) (some hUUinvTy)
+
+  let hVVinvTy ← Lean.Elab.Term.elabType (← `($VTypedStx * $VinvTypedStx = 1))
+  let hVVinvExpr ← Lean.Elab.Tactic.elabTerm (← `(by native_decide)) (some hVVinvTy)
+
+  let heqTy ← Lean.Elab.Term.elabType (← `($UTypedStx * $ATypedStx * $VTypedStx = $DTypedStx))
+  let heqExpr ← Lean.Elab.Tactic.elabTerm (← `(by native_decide)) (some heqTy)
+
+  let hdivTy ← Lean.Elab.Term.elabType (← `(
+    ∀ i j : Fin (min $mStx $nStx), i.val + 1 = j.val →
+      diagEntry $DTypedStx i ∣ diagEntry $DTypedStx j))
+  let hdivExpr ← Lean.Elab.Tactic.elabTerm (← `(by native_decide)) (some hdivTy)
+
+  let rExpr ← mkAppM ``firstZeroDiag #[DExpr]
+
+  let certExpr ← mkAppOptM ``CertificateSNF.mk #[
+    some mExpr, some nExpr,
+    some R,
+    none, none,
+    some AExpr,
+    some UExpr,
+    some UinvExpr,
+    some VExpr,
+    some VinvExpr,
+    some DExpr,
+    some rExpr,
+    some hdiagExpr,
+    some hrankExpr,
+    some hUUinvExpr,
+    some hVVinvExpr,
+    some heqExpr,
+    some hdivExpr
+  ]
+
   let certExprTy ← inferType certExpr
+  unless (← isDefEq certExprTy certTy) do
+    throwError "snf: internal error, constructed certificate has wrong type\n\
+     actual: {certExprTy}\n\
+     expected: {certTy}"
+  pure certExpr
+
+syntax (name := snfTac) "snf " term (" as " ident)? : tactic
+
+@[tactic snfTac] def evalSnfTac : Tactic := fun stx => do
+  let goal ← getMainGoal
+  let some (certName, AStx) := (match stx with
+    | `(tactic| snf $A as $h:ident) => some (h.getId, A)
+    | `(tactic| snf $A) => some (`cert, A)
+    | _ => none) |
+    throwError "expected `snf A` or `snf A as h`"
+  let AExpr ← elabTerm AStx none
+  let certExpr ← mkSNFCertExpr AExpr
+  let certExprTy ← inferType certExpr
+  let certTy ← certTypeFor AExpr
   unless (← isDefEq certExprTy certTy) do
     throwError "snf: internal error, certificate term has wrong type\nactual: {certExprTy}\nexpected: {certTy}"
 
-  let goal' ← addCertToContext goal `cert AExpr certExpr
+  let goal' ← addCertToContext goal certName AExpr certExpr
   -- logInfo "snf: added `cert : CertificateSNF A` to local context."
   setGoals [goal']

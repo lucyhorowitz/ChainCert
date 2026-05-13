@@ -1,17 +1,23 @@
-import Cultivar.Examples.Complexes
-import Cultivar.Boundary.Basis
+import Cultivar.Homology.Basic
 import Cultivar.SNF.Tactic
+import Cultivar.Examples.Complexes
 
-#eval canonicalBasisRaw kleinBottleFFC 0
-#eval canonicalBasisRaw kleinBottleFFC 1
-#eval canonicalBasisRaw kleinBottleFFC 2
-#eval (canonicalBasisRaw kleinBottleFFC 1).length
-#eval (canonicalBasisRaw kleinBottleFFC 0).length
-#eval (canonicalBasisRaw kleinBottleFFC 2).length
+/-!
+Scratch notes for the homology certificate work.
 
-#snf (boundaryMatrix triangleFFC 1)       -- should print Sage SNF output
+Do not build the final workflow by introducing local `M` terms and then running
+`snf M`. The current SNF tactic serializes matrices by compiled evaluation, so
+it needs closed matrix expressions. A local presentation matrix depending on a
+local `certK` produces a free-variable error during evaluation.
 
-/-- Smoke test: `snf` tactic on an FFC-derived-dim matrix (non-literal `Fin`). -/
+The homology tactic should call the reusable SNF backend directly on expressions
+it constructs, and should construct the presentation matrix expression itself.
+-/
+
+example :
+    (boundaryK (R := ℤ) triangleFFC 1) * (boundaryK (R := ℤ) triangleFFC 2) = 0 := by
+  native_decide
+
 example : True := by
-  snf (boundaryMatrix triangleFFC 1)
+  snf (boundaryK (R := ℤ) triangleFFC 1) as certK
   trivial
