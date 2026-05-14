@@ -16,6 +16,15 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v5
-      - uses: leanprover/lean-action@v1
-      - uses: leanprover-community/docgen-action@v1
+      - name: Checkout project
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Build and lint the project
+        uses: leanprover/lean-action@v1
+
+      - name: Build and publish API documentation
+        uses: leanprover-community/docgen-action@main
+        with:
+          build-page: false
