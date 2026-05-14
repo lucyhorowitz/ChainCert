@@ -1,6 +1,6 @@
-import Cultivar.Boundary.Tactic
-import Cultivar.Boundary.Verify
-import Cultivar.Examples.Complexes
+import ChainCert.Boundary.Tactic
+import ChainCert.Boundary.Verify
+import ChainCert.Examples.Complexes
 
 /-!
 High-value boundary examples:

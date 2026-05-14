@@ -1,5 +1,5 @@
-import Cultivar.SNF.Core
-import Cultivar.SNF.Verify
+import ChainCert.SNF.Core
+import ChainCert.SNF.Verify
 
 /-!
 # SNF Rank Readoff
@@ -12,7 +12,7 @@ verification data.
 variable {α : Type*} {m n : ℕ}
 variable {R : Type*} [CommRing R] [DecidableEq R]
 
-namespace Cultivar
+namespace ChainCert
 namespace SNF
 
 theorem zeroTailAt_firstZeroDiag_of_verifyDiag (D : Matrix (Fin m) (Fin n) R) :
@@ -35,4 +35,4 @@ theorem diagEntry_ne_zero_of_lt_firstZeroDiag_of_verifyDiag
   exact (Nat.not_le_of_lt hlt) hge
 
 end SNF
-end Cultivar
+end ChainCert

@@ -1,4 +1,4 @@
-import Cultivar.SNF.Core
+import ChainCert.SNF.Core
 import Mathlib.LinearAlgebra.Quotient.Pi
 import Mathlib.Data.ZMod.QuotientRing
 

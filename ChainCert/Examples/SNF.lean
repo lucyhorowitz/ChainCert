@@ -1,7 +1,7 @@
-import Cultivar.SNF.Tactic
-import Cultivar.SNF.Verify
-import Cultivar.Homology.Basic
-import Cultivar.Examples.Complexes
+import ChainCert.SNF.Tactic
+import ChainCert.SNF.Verify
+import ChainCert.Homology.Basic
+import ChainCert.Examples.Complexes
 
 /-!
 High-value SNF examples:

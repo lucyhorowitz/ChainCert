@@ -6,11 +6,11 @@
 
 import Lean
 import Mathlib.LinearAlgebra.Matrix.Defs
-import Cultivar.SageEncode
+import ChainCert.SageEncode
 
 open Lean
 
-namespace Cultivar.SageDecode
+namespace ChainCert.SageDecode
 
 /-- Decode a JSON value that is expected to be an array of arrays of strings
     into a `List (List String)`. Throws if the shape is wrong. -/
@@ -58,7 +58,7 @@ def mkIntExpr (z : Int) : Expr :=
 def decodeSerializableMatrix
     {R : Type} [SageSerializable R]
     (j : Lean.Json) : MetaM (List (List R)) := do
-  let rows ← Cultivar.SageDecode.decodeStringMatrix j
+  let rows ← ChainCert.SageDecode.decodeStringMatrix j
   rows.mapM fun row =>
     row.mapM fun s =>
       match SageSerializable.fromSageString (R := R) s with
@@ -79,4 +79,4 @@ def matrixExprOfRows
   Lean.Meta.mkAppM ``rowsToMatrix #[rows, mkRawNatLit m, mkRawNatLit n]
 
 
-end Cultivar.SageDecode
+end ChainCert.SageDecode

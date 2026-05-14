@@ -3,10 +3,10 @@ import Mathlib.LinearAlgebra.FreeModule.PID
 import Mathlib.RingTheory.PrincipalIdealDomain
 import Mathlib.LinearAlgebra.Matrix.Determinant.Basic
 import Mathlib.LinearAlgebra.Matrix.NonsingularInverse
-import Cultivar.SimplicialComplex
-import Cultivar.Boundary.Basis
-import Cultivar.SNF.Core
-import Cultivar.SageEncode
+import ChainCert.SimplicialComplex
+import ChainCert.Boundary.Basis
+import ChainCert.SNF.Core
+import ChainCert.SageEncode
 
 variable {α : Type*} {m n p : ℕ}
 variable {R : Type*} [CommRing R] [IsDomain R] [IsPrincipalIdealRing R]
@@ -55,9 +55,9 @@ def cyclePresentationMatrix
     Matrix (Fin (n - certK.r)) (Fin p) R :=
   bottomRows certK.r (certK.Vinv * dk1)
 
-/-- Certificate data for a quotient of the form `ker dₖ / im dₖ₊₁`, independent
-of any specific simplicial complex model. -/
-structure HomologyQuotientCert
+/-- Certificate data for a chain quotient of the form `ker dₖ / im dₖ₊₁`,
+independent of any specific simplicial complex model. -/
+structure ChainQuotientCert
     (dk : Matrix (Fin m) (Fin n) R)
     (dk1 : Matrix (Fin n) (Fin p) R) where
   certK : CertificateSNF (A := dk)
@@ -67,9 +67,50 @@ structure HomologyQuotientCert
   certM : CertificateSNF (A := M)
 
 /-- Homology certificate for an `FFC`: boundary data comes from `X`, and the
-quotient computation is certified by `HomologyQuotientCert`. -/
+quotient computation is certified by `ChainQuotientCert`. -/
 structure CertificateHomology (X : FFC ι) (k : ℕ) where
   quotientCert :
-    HomologyQuotientCert (R := R)
+    ChainQuotientCert (R := R)
       (boundaryK (R := R) X k)
       (boundaryK (R := R) X (k + 1))
+
+namespace CertificateHomology
+
+/-- The matrix whose cokernel presents the certified homology group. -/
+def presentationMatrix {X : FFC ι} {k : ℕ}
+    (cert : CertificateHomology (R := R) X k) :
+    Matrix
+      (Fin (cellCount X k - cert.quotientCert.certK.r))
+      (Fin (cellCount X (k + 1)))
+      R :=
+  cert.quotientCert.M
+
+/-- The SNF certificate for the homology presentation matrix. -/
+def presentationCert {X : FFC ι} {k : ℕ}
+    (cert : CertificateHomology (R := R) X k) :
+    CertificateSNF (A := presentationMatrix cert) :=
+  cert.quotientCert.certM
+
+omit [IsDomain R] [IsPrincipalIdealRing R] [SageSerializable R] in
+/-- The boundary maps in a certified homology computation compose to zero. -/
+theorem boundary_comp_next {X : FFC ι} {k : ℕ}
+    (cert : CertificateHomology (R := R) X k) :
+    boundaryK (R := R) X k * boundaryK (R := R) X (k + 1) = 0 :=
+  cert.quotientCert.hCC
+
+omit [IsDomain R] [IsPrincipalIdealRing R] [SageSerializable R] in
+/-- The stored presentation matrix is the cycle-presentation matrix. -/
+theorem presentationMatrix_eq {X : FFC ι} {k : ℕ}
+    (cert : CertificateHomology (R := R) X k) :
+    cert.presentationMatrix =
+      cyclePresentationMatrix cert.quotientCert.certK
+        (boundaryK (R := R) X (k + 1)) :=
+  cert.quotientCert.hM
+
+/-- The homology presentation matrix has a certified Smith normal form. -/
+def presentation_has_snf {X : FFC ι} {k : ℕ}
+    (cert : CertificateHomology (R := R) X k) :
+    CertificateSNF (A := cert.presentationMatrix) :=
+  cert.presentationCert
+
+end CertificateHomology

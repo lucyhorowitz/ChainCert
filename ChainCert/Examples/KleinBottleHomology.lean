@@ -1,8 +1,8 @@
-import Cultivar.Examples.Complexes
-import Cultivar.Boundary.Verify
-import Cultivar.SNF.Tactic
-import Cultivar.Homology.Tactic
-import Cultivar.Homology.Command
+import ChainCert.Examples.Complexes
+import ChainCert.Boundary.Verify
+import ChainCert.SNF.Tactic
+import ChainCert.Homology.Tactic
+import ChainCert.Homology.Command
 
 /-!
 Outline toward computing simplicial homology of the Klein bottle over `ℤ`.
@@ -27,8 +27,8 @@ example : True := by
   homology triangleFFC, 1
   trivial
 
-namespace Cultivar
+namespace ChainCert
 namespace Examples
 
 end Examples
-end Cultivar
+end ChainCert

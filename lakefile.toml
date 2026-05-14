@@ -1,7 +1,7 @@
-name = "Cultivar"
+name = "ChainCert"
 version = "0.1.0"
 keywords = ["math"]
-defaultTargets = ["Cultivar"]
+defaultTargets = ["ChainCert"]
 
 [leanOptions]
 pp.unicode.fun = true # pretty-prints `fun a ↦ b`
@@ -15,4 +15,4 @@ git = "https://github.com/leanprover-community/mathlib4"
 rev = "v4.29.0-rc8"
 
 [[lean_lib]]
-name = "Cultivar"
+name = "ChainCert"

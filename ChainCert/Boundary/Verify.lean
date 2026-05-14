@@ -1,7 +1,7 @@
 import Mathlib.Data.List.Basic
-import Cultivar.SimplicialComplex
-import Cultivar.Boundary.Basis
-import Cultivar.Boundary.Spec
+import ChainCert.SimplicialComplex
+import ChainCert.Boundary.Basis
+import ChainCert.Boundary.Spec
 
 variable {ι : Type} [DecidableEq ι] [Fintype ι] [LinearOrder ι]
 

@@ -1,8 +1,8 @@
 import Mathlib.Data.Finset.Sort
 import Mathlib.Data.List.Sort
-import Cultivar.SimplicialComplex
+import ChainCert.SimplicialComplex
 import Init.Data.List.Sort.Basic
-import Cultivar.Boundary.Spec
+import ChainCert.Boundary.Spec
 
 variable {ι : Type} [DecidableEq ι] [Fintype ι] [LinearOrder ι]
 

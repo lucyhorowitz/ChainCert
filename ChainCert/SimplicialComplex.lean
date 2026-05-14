@@ -2,8 +2,8 @@ import Mathlib.Data.Matrix.Basic
 import Mathlib.LinearAlgebra.Matrix.Notation
 import Mathlib.LinearAlgebra.Matrix.Determinant.Basic
 import Mathlib.AlgebraicTopology.SimplicialComplex.Basic
-import Cultivar.SNF.Core
-import Cultivar.SNF.Command
+import ChainCert.SNF.Core
+import ChainCert.SNF.Command
 
 variable {ι : Type} [DecidableEq ι] [Fintype ι] [LinearOrder ι]
 
@@ -41,7 +41,7 @@ is encoded by its index in the global order on `Finset.univ`.
 
 This is an interop encoding (`List (List Nat)`) used for JSON/Sage requests.
 For boundary specification and sign conventions inside Lean, prefer
-`Cultivar.Boundary.Spec.orientFace`, which stays in vertex type `ι`. -/
+`ChainCert.Boundary.Spec.orientFace`, which stays in vertex type `ι`. -/
 def FiniteFacetComplex.toRawFacets (F : FiniteFacetComplex ι) : List (List ℕ) :=
   let order := (Finset.univ : Finset ι).sort (· ≤ ·)
   (F.facets.image (fun f => (f.sort (· ≤ ·)).map (order.idxOf ·))).sort (· ≤ ·)

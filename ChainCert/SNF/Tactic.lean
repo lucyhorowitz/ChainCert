@@ -1,44 +1,55 @@
-import Cultivar.SNF.Core
-import Cultivar.SNF.Verify
-import Cultivar.SNF.Rank
-import Cultivar.SageServer
-import Cultivar.SageEncode
-import Cultivar.SageDecode
+import ChainCert.SNF.Core
+import ChainCert.SNF.Verify
+import ChainCert.SNF.Rank
+import ChainCert.SageServer
+import ChainCert.SageEncode
+import ChainCert.SageDecode
 import Lean.Elab.Tactic
 import Lean
 
+/-!
+# SNF tactic
 
-/-! Plan for `snf` tactic UX and behavior.
+The `snf` tactic computes and certifies Smith normal form data for a concrete
+matrix.
 
-Two tactics, sharing all internals (Sage call + Lean-side verification + term
-construction) and differing only in the final step:
+## User syntax
 
-- `snf A` — workhorse, goal-agnostic. Asserts `cert : CertificateSNF A` into
-  the local context. `snf A as hA` uses the provided local name instead.
-  Primary driver inside real proofs.
-- `verify_snf` — closes a goal of shape `CertificateSNF A`. Niche. Uses
-  `MVarId.assign` instead of `MVarId.assert` at the end.
+* `snf A`
 
-The rest of this comment describes `snf A`.
+  Adds a local hypothesis named `cert`:
 
-`snf A` is goal-agnostic: it can be run regardless of the current goal,
-and should enrich the local context with certified SNF data for a concrete matrix `A`.
+  ```lean
+  cert : CertificateSNF A
+  ```
 
-## Preconditions
-- `A` should be actual evaluable matrix data (not a fully symbolic matrix variable).
-- Matrix dimensions may be non-literal (e.g. `Fin (cellCount F k)`); the tactic
-  routes through compiled-code evaluation (`evalMatStringListSafe`) so nothing
-  requires the `Fin` arg to reduce in the kernel.
-- Matrix entries must be recoverable at elaboration time via `SageSerializable`.
+* `snf A as hA`
 
-## Core workflow
-1. Extract `(finM, finN, R)` Exprs from A's type (no `rawNatLit?`).
-2. Run `matStringList A` via `evalMatStringListSafe` to get a `List (List String)`.
-3. Send to Sage; decode `U`, `Uinv`, `D`, `V`, `Vinv` JSON.
-4. Build U/V/etc. matrix Exprs reusing A's original dim Exprs (so the built
-   `D : Matrix finM finN R` type matches A's type syntactically).
-5. Construct `CertificateSNF A` term; proof fields default to `native_decide`.
-6. Assert `cert : CertificateSNF A` into the goal context. -/
+  Adds the same certificate under the chosen name:
+
+  ```lean
+  hA : CertificateSNF A
+  ```
+
+The tactic is goal-agnostic: it enriches the local context and leaves the
+current goal unchanged.
+
+## Requirements
+
+The matrix must have type:
+
+```lean
+Matrix (Fin m) (Fin n) R
+```
+
+where its entries can be serialized through `SageSerializable R`. The matrix
+data must be evaluable at elaboration time; fully symbolic matrix variables are
+not supported.
+
+Dimensions may be non-literal expressions such as `cellCount X k`. The tactic
+serializes entries by compiled evaluation, asks Sage for SNF data, reconstructs
+the matrices in Lean, and builds a `CertificateSNF A` term checked by Lean.
+-/
 
 open Lean Elab Tactic Meta Expr
 
@@ -133,7 +144,7 @@ private def parseSerializableElemExpr (R : Expr) (s : String) : TacticM Expr := 
 
 private def decodeSerializableRowsExpr
     (R : Expr) (j : Lean.Json) : TacticM (List (List Expr)) := do
-  let rows ← Cultivar.SageDecode.decodeStringMatrix j
+  let rows ← ChainCert.SageDecode.decodeStringMatrix j
   rows.mapM fun row => row.mapM (parseSerializableElemExpr R)
 
 private def mkListExpr (α : Expr) (xs : List Expr) : TacticM Expr := do
@@ -151,7 +162,7 @@ private def rowsExprToMatrixExpr
   let rowsExpr ← mkListExpr listR rowExprs
   let zeroTy ← mkAppM ``Zero #[R]
   let _zeroInst ← synthInstance zeroTy
-  mkAppM ``Cultivar.SageDecode.rowsToMatrix #[rowsExpr, mExpr, nExpr]
+  mkAppM ``ChainCert.SageDecode.rowsToMatrix #[rowsExpr, mExpr, nExpr]
 
 /-- Build `Matrix finM finN R` as an Expr, reusing existing `Fin _` Exprs directly. -/
 private def matrixTyExprFromFin (R finM finN : Expr) : MetaM Expr :=
@@ -161,6 +172,81 @@ private def ensureMatrixExprHasType (matrixExpr expectedTy : Expr) : TacticM Uni
   let gotTy ← inferType matrixExpr
   unless (← isDefEq gotTy expectedTy) do
     throwError "snf: internal error, matrix expression has type {gotTy}, expected {expectedTy}"
+
+private def mkZeroOfType (α : Expr) : TacticM Expr := do
+  let zeroTy ← mkAppM ``Zero #[α]
+  let zeroInst ← synthInstance zeroTy
+  mkAppOptM ``Zero.zero #[some α, some zeroInst]
+
+private def mkOneOfType (α : Expr) : TacticM Expr := do
+  let oneTy ← mkAppM ``One #[α]
+  let oneInst ← synthInstance oneTy
+  mkAppOptM ``One.one #[some α, some oneInst]
+
+private def mkMulExpr (a b : Expr) : TacticM Expr :=
+  mkAppM ``HMul.hMul #[a, b]
+
+private def mkDiagEntryExpr (D i : Expr) : TacticM Expr :=
+  mkAppM ``diagEntry #[D, i]
+
+private def mkFirstZeroDiagExpr (D : Expr) : TacticM Expr :=
+  mkAppM ``firstZeroDiag #[D]
+
+private def mkFinValExpr (i : Expr) : TacticM Expr :=
+  mkAppM ``Fin.val #[i]
+
+private def mkDecideProofExpr (p : Expr) : TacticM Expr :=
+  Lean.Elab.Tactic.elabNativeDecideCore `snf p
+
+private def mkIsDiagonalExpr (R mExpr nExpr DExpr : Expr) : TacticM Expr := do
+  let zeroTy ← mkAppM ``Zero #[R]
+  let zeroInst ← synthInstance zeroTy
+  mkAppOptM ``IsDiagonal #[
+    some R, some mExpr, some nExpr, some DExpr, some zeroInst]
+
+private def mkRankProofType (mExpr nExpr DExpr rExpr R : Expr) : TacticM Expr := do
+  let minExpr ← mkAppM ``Nat.min #[mExpr, nExpr]
+  let finMinTy ← mkAppM ``Fin #[minExpr]
+  withLocalDeclD `i finMinTy fun i => do
+    let diagI ← mkDiagEntryExpr DExpr i
+    let zeroR ← mkZeroOfType R
+    let lhs ← mkEq diagI zeroR
+    let iVal ← mkFinValExpr i
+    let rhs ← mkAppM ``Nat.le #[rExpr, iVal]
+    let body ← mkAppM ``Iff #[lhs, rhs]
+    mkForallFVars #[i] body
+
+private def mkRankProofExpr (mExpr nExpr DExpr rExpr R : Expr) : TacticM Expr := do
+  let hTy ← mkAppM ``verifyDiag #[DExpr]
+  let hdiagOk ← mkDecideProofExpr hTy
+  let minExpr ← mkAppM ``Nat.min #[mExpr, nExpr]
+  let finMinTy ← mkAppM ``Fin #[minExpr]
+  let proof ←
+    withLocalDeclD `i finMinTy fun i => do
+      let theoremExpr ←
+        mkAppM ``ChainCert.SNF.diagEntry_eq_zero_iff_ge_firstZeroDiag_of_verifyDiag
+          #[DExpr, i, hdiagOk]
+      mkLambdaFVars #[i] theoremExpr
+  let proofTy ← inferType proof
+  let expectedTy ← mkRankProofType mExpr nExpr DExpr rExpr R
+  unless (← isDefEq proofTy expectedTy) do
+    throwError "snf: internal error, rank proof has type {proofTy}, expected {expectedTy}"
+  pure proof
+
+private def mkDivisibilityProofType (mExpr nExpr DExpr : Expr) : TacticM Expr := do
+  let minExpr ← mkAppM ``Nat.min #[mExpr, nExpr]
+  let finMinTy ← mkAppM ``Fin #[minExpr]
+  withLocalDeclD `i finMinTy fun i => do
+    withLocalDeclD `j finMinTy fun j => do
+      let iVal ← mkFinValExpr i
+      let jVal ← mkFinValExpr j
+      let iSucc ← mkAppM ``Nat.succ #[iVal]
+      let hTy ← mkEq iSucc jVal
+      withLocalDeclD `h hTy fun h => do
+        let diagI ← mkDiagEntryExpr DExpr i
+        let diagJ ← mkDiagEntryExpr DExpr j
+        let body ← mkAppM ``Dvd.dvd #[diagI, diagJ]
+        mkForallFVars #[i, j, h] body
 
 
 /-- Build a `CertificateSNF AExpr` expression from Sage data, then elaborate and
@@ -192,59 +278,31 @@ def mkSNFCertExpr (AExpr : Expr) : TacticM Expr := do
   ensureMatrixExprHasType VinvExpr matNNTy
 
   let certTy ← certTypeFor AExpr
-  let AStx : TSyntax `term ← Lean.PrettyPrinter.delab AExpr
-  let RStx : TSyntax `term ← Lean.PrettyPrinter.delab R
-  let UStx : TSyntax `term ← Lean.PrettyPrinter.delab UExpr
-  let UinvStx : TSyntax `term ← Lean.PrettyPrinter.delab UinvExpr
-  let VStx : TSyntax `term ← Lean.PrettyPrinter.delab VExpr
-  let VinvStx : TSyntax `term ← Lean.PrettyPrinter.delab VinvExpr
-  let DStx : TSyntax `term ← Lean.PrettyPrinter.delab DExpr
-  let mStx : TSyntax `term ← Lean.PrettyPrinter.delab mExpr
-  let nStx : TSyntax `term ← Lean.PrettyPrinter.delab nExpr
-
-  let ATypedStx : TSyntax `term ←
-    `(($AStx : Matrix (Fin $mStx) (Fin $nStx) $RStx))
-  let UTypedStx : TSyntax `term ←
-    `(($UStx : Matrix (Fin $mStx) (Fin $mStx) $RStx))
-  let UinvTypedStx : TSyntax `term ←
-    `(($UinvStx : Matrix (Fin $mStx) (Fin $mStx) $RStx))
-  let VTypedStx : TSyntax `term ←
-    `(($VStx : Matrix (Fin $nStx) (Fin $nStx) $RStx))
-  let VinvTypedStx : TSyntax `term ←
-    `(($VinvStx : Matrix (Fin $nStx) (Fin $nStx) $RStx))
-  let DTypedStx : TSyntax `term ←
-    `(($DStx : Matrix (Fin $mStx) (Fin $nStx) $RStx))
-
-  let hdiagTy ← Lean.Elab.Term.elabType (← `(IsDiagonal $DTypedStx))
-  let hdiagExpr ← Lean.Elab.Tactic.elabTerm (← `(by native_decide)) (some hdiagTy)
-
-  let hrankTy ← Lean.Elab.Term.elabType (← `(
-  ∀ (i : Fin (min $mStx $nStx)),
-    diagEntry $DTypedStx i = 0 ↔ firstZeroDiag $DTypedStx ≤ i.val))
-  let hrankExpr ← Lean.Elab.Tactic.elabTerm (← `(
-  by
-    intro i
-    have hdiagOk : verifyDiag (R := $RStx) $DTypedStx := by native_decide
-    simpa using
-      (Cultivar.SNF.diagEntry_eq_zero_iff_ge_firstZeroDiag_of_verifyDiag
-        (R := $RStx) (D := $DTypedStx) (i := i) hdiagOk)
-  )) (some hrankTy)
-
-  let hUUinvTy ← Lean.Elab.Term.elabType (← `($UTypedStx * $UinvTypedStx = 1))
-  let hUUinvExpr ← Lean.Elab.Tactic.elabTerm (← `(by native_decide)) (some hUUinvTy)
-
-  let hVVinvTy ← Lean.Elab.Term.elabType (← `($VTypedStx * $VinvTypedStx = 1))
-  let hVVinvExpr ← Lean.Elab.Tactic.elabTerm (← `(by native_decide)) (some hVVinvTy)
-
-  let heqTy ← Lean.Elab.Term.elabType (← `($UTypedStx * $ATypedStx * $VTypedStx = $DTypedStx))
-  let heqExpr ← Lean.Elab.Tactic.elabTerm (← `(by native_decide)) (some heqTy)
-
-  let hdivTy ← Lean.Elab.Term.elabType (← `(
-    ∀ i j : Fin (min $mStx $nStx), i.val + 1 = j.val →
-      diagEntry $DTypedStx i ∣ diagEntry $DTypedStx j))
-  let hdivExpr ← Lean.Elab.Tactic.elabTerm (← `(by native_decide)) (some hdivTy)
 
   let rExpr ← mkAppM ``firstZeroDiag #[DExpr]
+
+  let hdiagTy ← mkIsDiagonalExpr R mExpr nExpr DExpr
+  let hdiagExpr ← mkDecideProofExpr hdiagTy
+
+  let hrankExpr ← mkRankProofExpr mExpr nExpr DExpr rExpr R
+
+  let UUinvExpr ← mkMulExpr UExpr UinvExpr
+  let oneMM ← mkOneOfType matMMTy
+  let hUUinvTy ← mkEq UUinvExpr oneMM
+  let hUUinvExpr ← mkDecideProofExpr hUUinvTy
+
+  let VVinvExpr ← mkMulExpr VExpr VinvExpr
+  let oneNN ← mkOneOfType matNNTy
+  let hVVinvTy ← mkEq VVinvExpr oneNN
+  let hVVinvExpr ← mkDecideProofExpr hVVinvTy
+
+  let UAExpr ← mkMulExpr UExpr AExpr
+  let UAVExpr ← mkMulExpr UAExpr VExpr
+  let heqTy ← mkEq UAVExpr DExpr
+  let heqExpr ← mkDecideProofExpr heqTy
+
+  let hdivTy ← mkDivisibilityProofType mExpr nExpr DExpr
+  let hdivExpr ← mkDecideProofExpr hdivTy
 
   let certExpr ← mkAppOptM ``CertificateSNF.mk #[
     some mExpr, some nExpr,
@@ -272,6 +330,23 @@ def mkSNFCertExpr (AExpr : Expr) : TacticM Expr := do
      expected: {certTy}"
   pure certExpr
 
+/--
+Compute a Smith normal form certificate for `A`.
+
+Examples:
+
+```lean
+example : True := by
+  snf A
+  -- cert : CertificateSNF A
+  trivial
+
+example : True := by
+  snf A as hA
+  -- hA : CertificateSNF A
+  trivial
+```
+-/
 syntax (name := snfTac) "snf " term (" as " ident)? : tactic
 
 @[tactic snfTac] def evalSnfTac : Tactic := fun stx => do

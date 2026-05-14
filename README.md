@@ -1,4 +1,4 @@
-# Cultivar
+# ChainCert
 
 ## GitHub configuration
 

@@ -1,6 +1,6 @@
-import Cultivar.Boundary.Verify
+import ChainCert.Boundary.Verify
 import Lean.Elab.Tactic
-import Cultivar.Boundary.Boundary
+import ChainCert.Boundary.Boundary
 
 open Lean Elab Tactic Meta Term IO Process
 

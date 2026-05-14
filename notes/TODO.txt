@@ -18,11 +18,11 @@ The SNF certificate path is working as a prototype.
   - no separate `boundaryKInt`;
   - `boundaryRowCount` is a reducible helper;
   - `boundaryK X k` now has the homological indexing convention, i.e. `∂ₖ : Cₖ → Cₖ₋₁`.
-- `Cultivar.lean` no longer imports the deleted examples aggregator.
+- `ChainCert.lean` no longer imports the deleted examples aggregator.
 
-The homology certificate data model is in `Cultivar/Homology/Basic.lean`:
+The homology certificate data model is in `ChainCert/Homology/Basic.lean`:
 
-- `HomologyQuotientCert dk dk1`
+- `ChainQuotientCert dk dk1`
   - `certK : CertificateSNF dk`
   - `hCC : dk * dk1 = 0`
   - `M : Matrix (Fin (n - certK.r)) (Fin p) R`
@@ -60,7 +60,7 @@ The right direction is:
    `cyclePresentationMatrix certK dk1`.
 5. It obtains or constructs a closed/usable expression for that matrix and calls
    the SNF backend on it, not the user-facing `snf` tactic on a proof-local let.
-6. It assembles `HomologyQuotientCert` / `CertificateHomology`.
+6. It assembles `ChainQuotientCert` / `CertificateHomology`.
 
 If step 5 remains painful because `M` depends on the generated certificate term,
 use the Sage homology witness path: have Sage return `M`, verify
@@ -69,7 +69,7 @@ Sage's returned `M` with `mkSNFCertExpr`.
 
 ## Tomorrow
 
-1. Re-read `Cultivar/Homology/Tactic.lean`.
+1. Re-read `ChainCert/Homology/Tactic.lean`.
    It currently only builds `dk` and adds `certK`. Treat it as a sketch, not final.
 
 2. Decide the `certM` strategy:
@@ -85,7 +85,7 @@ Sage's returned `M` with `mkSNFCertExpr`.
    - `hCC := by native_decide`;
    - build `M`;
    - `certM ← mkSNFCertExpr M`;
-   - assemble `HomologyQuotientCert`;
+   - assemble `ChainQuotientCert`;
    - wrap it into `CertificateHomology`.
 
 4. Keep the user-facing tactic small:
