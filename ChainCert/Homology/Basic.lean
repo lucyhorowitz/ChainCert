@@ -41,10 +41,98 @@ def bottomRowIndex (r n : ℕ) (i : Fin (n - r)) : Fin n :=
       else
         0
 
+@[simp]
+theorem bottomRowIndex_val_of_le {r n : ℕ} (h : r ≤ n) (i : Fin (n - r)) :
+    (bottomRowIndex r n i).val = r + i.val := by
+  cases n with
+  | zero =>
+      have hi : i.val < 0 := by
+        simpa [Nat.zero_sub] using i.isLt
+      omega
+  | succ n' =>
+      unfold bottomRowIndex
+      have hlt : r + i.val < n' + 1 := by omega
+      simp [hlt]
+
+theorem bottomRowIndex_eq_of_le {r n : ℕ} (h : r ≤ n) (i : Fin (n - r)) :
+    bottomRowIndex r n i = ⟨r + i.val, by omega⟩ := by
+  ext
+  exact bottomRowIndex_val_of_le h i
+
 /-- Keep the rows from `r` onward in an `n × p` matrix. -/
 def bottomRows (r : ℕ) (A : Matrix (Fin n) (Fin p) R) :
     Matrix (Fin (n - r)) (Fin p) R :=
   fun i j => A (bottomRowIndex r n i) j
+
+/-- Keep the coordinates from `r` onward in a vector of length `n`. -/
+def bottomCoordinates (r n : ℕ) :
+    (Fin n → R) →ₗ[R] (Fin (n - r) → R) where
+  toFun x i := x (bottomRowIndex r n i)
+  map_add' x y := by
+    ext i
+    rfl
+  map_smul' a x := by
+    ext i
+    rfl
+
+/-- Extend bottom coordinates to a vector of length `n`, filling coordinates
+before `r` with zero. -/
+def extendBottomCoordinates (r n : ℕ) :
+    (Fin (n - r) → R) →ₗ[R] (Fin n → R) where
+  toFun x j :=
+    if h : r ≤ j.val then
+      x ⟨j.val - r, by omega⟩
+    else
+      0
+  map_add' x y := by
+    ext j
+    by_cases h : r ≤ j.val <;> simp [h]
+  map_smul' a x := by
+    ext j
+    by_cases h : r ≤ j.val <;> simp [h]
+
+@[simp]
+theorem bottomCoordinates_apply (r n : ℕ) (x : Fin n → R)
+    (i : Fin (n - r)) :
+    bottomCoordinates (R := R) r n x i = x (bottomRowIndex r n i) :=
+  rfl
+
+@[simp]
+theorem extendBottomCoordinates_apply_of_lt {r n : ℕ}
+    (x : Fin (n - r) → R) {j : Fin n} (h : j.val < r) :
+    extendBottomCoordinates (R := R) r n x j = 0 := by
+  simp [extendBottomCoordinates, Nat.not_le_of_lt h]
+
+@[simp]
+theorem extendBottomCoordinates_apply_of_le {r n : ℕ}
+    (x : Fin (n - r) → R) {j : Fin n} (h : r ≤ j.val) :
+    extendBottomCoordinates (R := R) r n x j =
+      x ⟨j.val - r, by omega⟩ := by
+  simp [extendBottomCoordinates, h]
+
+@[simp]
+theorem bottomCoordinates_extendBottomCoordinates
+    {r n : ℕ} (h : r ≤ n) (x : Fin (n - r) → R) :
+    bottomCoordinates (R := R) r n
+      (extendBottomCoordinates (R := R) r n x) = x := by
+  ext i
+  simp [bottomCoordinates, bottomRowIndex_val_of_le h]
+
+theorem extendBottomCoordinates_bottomCoordinates_of_eq_zero
+    {r n : ℕ} (h : r ≤ n) (x : Fin n → R)
+    (hx : ∀ j : Fin n, j.val < r → x j = 0) :
+    extendBottomCoordinates (R := R) r n
+      (bottomCoordinates (R := R) r n x) = x := by
+  ext j
+  by_cases hj : r ≤ j.val
+  · simp [bottomCoordinates, hj]
+    congr 1
+    ext
+    rw [bottomRowIndex_val_of_le h]
+    change r + (j.val - r) = j.val
+    omega
+  · have hlt : j.val < r := Nat.lt_of_not_ge hj
+    simp [extendBottomCoordinates, hj, hx j hlt]
 
 /-- The presentation matrix for `im ∂ₖ₊₁` after changing coordinates by the
 SNF column basis for `∂ₖ`; this is the matrix whose cokernel presents homology. -/
