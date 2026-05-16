@@ -45,6 +45,7 @@ structure CertificateSNF [DecidableEq R] (A : Matrix (Fin m) (Fin n) R) where
   Vinv : Matrix (Fin n) (Fin n) R
   D : Matrix (Fin m) (Fin n) R
   r : ℕ := firstZeroDiag D
+  hrankCutoff : r = firstZeroDiag D := by native_decide
   hdiag : IsDiagonal D := by native_decide
   hrank : ∀ (i : Fin (min m n)), diagEntry D i = 0 ↔ r ≤ i.val := by native_decide
   hUUinv : U * Uinv = 1 := by native_decide
@@ -54,6 +55,15 @@ structure CertificateSNF [DecidableEq R] (A : Matrix (Fin m) (Fin n) R) where
            diagEntry D i ∣ diagEntry D j := by native_decide
 
 namespace CertificateSNF
+
+omit [IsDomain R] [IsPrincipalIdealRing R] in
+lemma rankCutoff_le_min (cert : CertificateSNF A) : cert.r ≤ min m n := by
+  rw [cert.hrankCutoff]
+  unfold firstZeroDiag
+  split
+  · rename_i i _
+    exact Nat.le_of_lt i.isLt
+  · rfl
 
 omit [IsDomain R] [IsPrincipalIdealRing R] in
 /-- Right-inverse flip: `Uinv * U = 1` follows from `U * Uinv = 1` over a CommRing. -/

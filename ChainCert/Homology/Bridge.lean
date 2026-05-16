@@ -57,6 +57,40 @@ def matrixHomology
     (hCC : dk * dk1 = 0) : Type _ :=
   cycles dk ⧸ boundaryImageInCycles dk dk1 hCC
 
+instance matrixHomology.instAddCommGroup
+    (dk : Matrix (Fin m) (Fin n) R)
+    (dk1 : Matrix (Fin n) (Fin p) R)
+    (hCC : dk * dk1 = 0) :
+    AddCommGroup (matrixHomology dk dk1 hCC) := by
+  dsimp [matrixHomology]
+  exact Submodule.Quotient.addCommGroup (boundaryImageInCycles dk dk1 hCC)
+
+instance matrixHomology.instModule
+    (dk : Matrix (Fin m) (Fin n) R)
+    (dk1 : Matrix (Fin n) (Fin p) R)
+    (hCC : dk * dk1 = 0) :
+    Module R (matrixHomology dk dk1 hCC) := by
+  dsimp [matrixHomology]
+  exact Submodule.Quotient.module (boundaryImageInCycles dk dk1 hCC)
+
+namespace CertificateSNF
+
+/-- The coordinate equivalence on cycles induced by an SNF certificate for
+`dk`.
+
+Mathematically, this applies the certified inverse column change `Vinv` and then
+keeps the bottom coordinates, i.e. the coordinates after the rank cutoff
+`certK.r`.  The statement is packaged as a linear equivalence because the SNF
+certificate for `dk` should identify `ker dk` with a free module on those bottom
+coordinates. -/
+noncomputable def cycleCoordinateEquiv
+    {dk : Matrix (Fin m) (Fin n) R}
+    (certK : CertificateSNF (A := dk)) :
+    cycles dk ≃ₗ[R] (Fin (n - certK.r) → R) := by
+  sorry
+
+end CertificateSNF
+
 namespace ChainQuotientCert
 
 /-- A chain quotient certificate proves that the certified boundary image is
@@ -85,6 +119,63 @@ noncomputable def presentationCokernelEquivDiagonal
     ((Fin (n - cert.certK.r) → R) ⧸ matRange cert.M) ≃ₗ[R]
       ((Fin (n - cert.certK.r) → R) ⧸ matRange cert.certM.D) :=
   CertificateSNF.cokernelEquivDiagonal (A := cert.M) cert.certM
+
+/-- Under the cycle-coordinate equivalence coming from the SNF certificate for
+`dk`, the boundary image `im dk1` inside `ker dk` is exactly the range of the
+stored presentation matrix `M`.
+
+This is the central bookkeeping lemma behind the homology bridge.  It says that
+the matrix `M` stored in the certificate is not merely some auxiliary matrix: it
+is precisely the boundary image expressed in the certified coordinates on
+cycles. -/
+theorem map_boundaryImage_eq_presentationRange
+    {dk : Matrix (Fin m) (Fin n) R}
+    {dk1 : Matrix (Fin n) (Fin p) R}
+    (cert : ChainQuotientCert (R := R) dk dk1) :
+    (boundaryImageInCycles dk dk1 cert.hCC).map
+        (CertificateSNF.cycleCoordinateEquiv (R := R) (m := m) (n := n)
+          (dk := dk) cert.certK :
+          cycles dk →ₗ[R] (Fin (n - cert.certK.r) → R)) =
+      matRange cert.M := by
+  sorry
+
+/-- A chain quotient certificate identifies the actual algebraic homology
+quotient
+
+`ker dk / im dk1`
+
+with the cokernel of the stored presentation matrix `M`.
+
+This is the main theorem needed to justify the `homology` certificate format:
+after this theorem, the rest of the computation is ordinary Smith normal form
+on `M`. -/
+noncomputable def homologyEquivPresentation
+    {dk : Matrix (Fin m) (Fin n) R}
+    {dk1 : Matrix (Fin n) (Fin p) R}
+    (cert : ChainQuotientCert (R := R) dk dk1) :
+    cert.homologyModule ≃ₗ[R]
+      ((Fin (n - cert.certK.r) → R) ⧸ matRange cert.M) :=
+  Submodule.Quotient.equiv
+    (boundaryImageInCycles dk dk1 cert.hCC)
+    (matRange cert.M)
+    (CertificateSNF.cycleCoordinateEquiv (R := R) (m := m) (n := n)
+      (dk := dk) cert.certK)
+    (map_boundaryImage_eq_presentationRange (R := R) cert)
+
+/-- Combining `homologyEquivPresentation` with the existing SNF bridge for `M`
+identifies the homology quotient with the cokernel of the certified diagonal
+Smith form of `M`.
+
+This is the matrix-level version of the final correctness theorem for a
+homology certificate. -/
+noncomputable def homologyEquivDiagonal
+    {dk : Matrix (Fin m) (Fin n) R}
+    {dk1 : Matrix (Fin n) (Fin p) R}
+    (cert : ChainQuotientCert (R := R) dk dk1) :
+    cert.homologyModule ≃ₗ[R]
+      ((Fin (n - cert.certK.r) → R) ⧸ matRange cert.certM.D) :=
+  (homologyEquivPresentation (R := R) cert).trans
+    (presentationCokernelEquivDiagonal (R := R) cert)
 
 end ChainQuotientCert
 
@@ -116,5 +207,32 @@ noncomputable def presentationCokernelEquivDiagonal {X : FFC ι} {k : ℕ}
         matRange cert.presentationCert.D) :=
   CertificateSNF.cokernelEquivDiagonal (A := cert.presentationMatrix)
     cert.presentationCert
+
+/-- A homology certificate identifies the actual homology quotient of the
+boundary maps of `X` in degree `k` with the cokernel of its stored presentation
+matrix.
+
+This is the simplicial-complex wrapper around
+`ChainQuotientCert.homologyEquivPresentation`. -/
+noncomputable def homologyEquivPresentation {X : FFC ι} {k : ℕ}
+    (cert : CertificateHomology (R := R) X k) :
+    cert.homologyModule ≃ₗ[R]
+      ((Fin (cellCount X k - cert.quotientCert.certK.r) → R) ⧸
+        matRange cert.presentationMatrix) :=
+  ChainQuotientCert.homologyEquivPresentation (R := R) cert.quotientCert
+
+/-- Final intended correctness statement for `CertificateHomology`: the actual
+homology quotient of `X` in degree `k` is linearly equivalent to the cokernel of
+the certified diagonal Smith form of the presentation matrix.
+
+For coefficients in `ℤ`, this is the point from which one reads off Betti
+numbers and torsion coefficients from the diagonal entries. -/
+noncomputable def homologyEquivDiagonal {X : FFC ι} {k : ℕ}
+    (cert : CertificateHomology (R := R) X k) :
+    cert.homologyModule ≃ₗ[R]
+      ((Fin (cellCount X k - cert.quotientCert.certK.r) → R) ⧸
+        matRange cert.presentationCert.D) :=
+  (homologyEquivPresentation (R := R) cert).trans
+    (presentationCokernelEquivDiagonal (R := R) cert)
 
 end CertificateHomology

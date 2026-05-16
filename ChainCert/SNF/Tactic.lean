@@ -315,6 +315,7 @@ def mkSNFCertExpr (AExpr : Expr) : TacticM Expr := do
     some VinvExpr,
     some DExpr,
     some rExpr,
+    some (← mkEqRefl rExpr),
     some hdiagExpr,
     some hrankExpr,
     some hUUinvExpr,
