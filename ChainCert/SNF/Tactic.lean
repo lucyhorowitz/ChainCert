@@ -53,7 +53,7 @@ the matrices in Lean, and builds a `CertificateSNF A` term checked by Lean.
 
 open Lean Elab Tactic Meta Expr
 
-private structure SnfSageJsonPayload where
+structure SnfSageJsonPayload where
   U : Lean.Json
   Uinv : Lean.Json
   D : Lean.Json
@@ -249,12 +249,12 @@ private def mkDivisibilityProofType (mExpr nExpr DExpr : Expr) : TacticM Expr :=
         mkForallFVars #[i, j, h] body
 
 
-/-- Build a `CertificateSNF AExpr` expression from Sage data, then elaborate and
-type-check it. This is the reusable construction backend for the `snf` tactic. -/
-def mkSNFCertExpr (AExpr : Expr) : TacticM Expr := do
+/-- Build a `CertificateSNF AExpr` expression from already available Sage SNF
+JSON, then elaborate and type-check it. -/
+def mkSNFCertExprFromPayload (AExpr : Expr) (payload : SnfSageJsonPayload) :
+    TacticM Expr := do
   let (finM, finN, mExpr, nExpr, R) ← ensureSnfInput AExpr
   -- logInfo m!"snf input validated: m={mExpr}, n={nExpr}, ring={R}"
-  let payload ← callSnfSageJson AExpr
   let ⟨uJson, uinvJson, dJson, vJson, vinvJson⟩ := payload
   let uRowsExpr ← decodeSerializableRowsExpr R uJson
   let uinvRowsExpr ← decodeSerializableRowsExpr R uinvJson
@@ -330,6 +330,12 @@ def mkSNFCertExpr (AExpr : Expr) : TacticM Expr := do
      actual: {certExprTy}\n\
      expected: {certTy}"
   pure certExpr
+
+/-- Build a `CertificateSNF AExpr` expression from Sage data, then elaborate and
+type-check it. This is the reusable construction backend for the `snf` tactic. -/
+def mkSNFCertExpr (AExpr : Expr) : TacticM Expr := do
+  let payload ← callSnfSageJson AExpr
+  mkSNFCertExprFromPayload AExpr payload
 
 /--
 Compute a Smith normal form certificate for `A`.

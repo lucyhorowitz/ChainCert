@@ -75,6 +75,138 @@ instance matrixHomology.instModule
 
 namespace CertificateSNF
 
+omit [IsDomain R] [IsPrincipalIdealRing R] [SageSerializable R] in
+theorem diagonal_row_mulVec_eq
+    {D : Matrix (Fin m) (Fin n) R} (hdiag : IsDiagonal D)
+    {i : Fin m} {j : Fin n} (hij : i.val = j.val) (x : Fin n → R) :
+    (D *ᵥ x) i = D i j * x j := by
+  rw [Matrix.mulVec]
+  unfold dotProduct
+  refine Finset.sum_eq_single j ?_ ?_
+  · intro b _ hb
+    have hne : i.val ≠ b.val := by
+      intro h
+      apply hb
+      ext
+      omega
+    simp [hdiag i b hne]
+  · intro hmem
+    exact (hmem (Finset.mem_univ j)).elim
+
+theorem diagonal_mulVec_extendBottomCoordinates_eq_zero
+    {dk : Matrix (Fin m) (Fin n) R}
+    (certK : CertificateSNF (A := dk)) (x : Fin (n - certK.r) → R) :
+    certK.D *ᵥ extendBottomCoordinates (R := R) certK.r n x = 0 := by
+  classical
+  ext i
+  rw [Matrix.mulVec]
+  unfold dotProduct
+  refine Finset.sum_eq_zero ?_
+  intro j _
+  by_cases hij : i.val = j.val
+  · by_cases hlt : i.val < certK.r
+    · have hjlt : j.val < certK.r := by omega
+      simp [extendBottomCoordinates_apply_of_lt (R := R) x hjlt]
+    · have hmin : i.val < min m n := by
+        have : i.val < m := i.isLt
+        have : j.val < n := j.isLt
+        omega
+      let q : Fin (min m n) := ⟨i.val, hmin⟩
+      have hdiag_zero : diagEntry certK.D q = 0 := by
+        exact (certK.hrank q).2 (by
+          change certK.r ≤ i.val
+          exact Nat.le_of_not_gt hlt)
+      have hD : certK.D i j = diagEntry certK.D q := by
+        unfold diagEntry
+        congr <;> ext <;> simp [q, hij]
+      simp [hD, hdiag_zero]
+  · have hD : certK.D i j = 0 := certK.hdiag i j hij
+    simp [hD]
+
+theorem diagonal_mulVec_vinv_eq_zero_of_mem_cycles
+    {dk : Matrix (Fin m) (Fin n) R}
+    (certK : CertificateSNF (A := dk)) (x : cycles dk) :
+    certK.D *ᵥ (certK.Vinv *ᵥ (x : Fin n → R)) = 0 := by
+  have hx : dk *ᵥ (x : Fin n → R) = 0 := by
+    have hx' : matLin dk (x : Fin n → R) = 0 := x.property
+    exact hx'
+  calc
+    certK.D *ᵥ (certK.Vinv *ᵥ (x : Fin n → R))
+        = (certK.U * dk * certK.V) *ᵥ (certK.Vinv *ᵥ (x : Fin n → R)) := by
+            rw [certK.heq]
+    _ = certK.U *ᵥ (dk *ᵥ (x : Fin n → R)) := by
+      rw [Matrix.mulVec_mulVec]
+      calc
+        (certK.U * dk * certK.V * certK.Vinv) *ᵥ (x : Fin n → R)
+            = ((certK.U * dk) * (certK.V * certK.Vinv)) *ᵥ
+                (x : Fin n → R) := by
+                rw [Matrix.mul_assoc]
+        _ = ((certK.U * dk) * (1 : Matrix (Fin n) (Fin n) R)) *ᵥ
+                (x : Fin n → R) := by
+                rw [certK.hVVinv]
+        _ = (certK.U * dk) *ᵥ (x : Fin n → R) := by rw [Matrix.mul_one]
+        _ = certK.U *ᵥ (dk *ᵥ (x : Fin n → R)) := by rw [Matrix.mulVec_mulVec]
+    _ = 0 := by simp [hx]
+
+theorem vinv_mulVec_eq_zero_of_mem_cycles_of_lt
+    {dk : Matrix (Fin m) (Fin n) R}
+    (certK : CertificateSNF (A := dk)) (x : cycles dk)
+    {j : Fin n} (hj : j.val < certK.r) :
+    (certK.Vinv *ᵥ (x : Fin n → R)) j = 0 := by
+  classical
+  have hrmin : certK.r ≤ min m n := certK.rankCutoff_le_min
+  let i : Fin m := ⟨j.val, by omega⟩
+  have hDzero := congr_fun
+    (diagonal_mulVec_vinv_eq_zero_of_mem_cycles (R := R) certK x) i
+  have hrow :
+      certK.D i j * (certK.Vinv *ᵥ (x : Fin n → R)) j = 0 := by
+    rwa [diagonal_row_mulVec_eq (R := R) certK.hdiag (i := i) (j := j) (by simp [i])]
+      at hDzero
+  have hmin : j.val < min m n := by omega
+  let q : Fin (min m n) := ⟨j.val, hmin⟩
+  have hdiag_ne : certK.D i j ≠ 0 := by
+    have hentry_ne : diagEntry certK.D q ≠ 0 := by
+      intro hzero
+      have hle : certK.r ≤ q.val := (certK.hrank q).1 hzero
+      have : certK.r ≤ j.val := by
+        simpa [q] using hle
+      omega
+    have hD : certK.D i j = diagEntry certK.D q := by
+      unfold diagEntry
+      congr <;> ext <;> simp [i, q]
+    simpa [hD] using hentry_ne
+  exact (eq_zero_or_eq_zero_of_mul_eq_zero hrow).resolve_left hdiag_ne
+
+theorem vk_extendBottom_mem_cycles
+    {dk : Matrix (Fin m) (Fin n) R}
+    (certK : CertificateSNF (A := dk)) (x : Fin (n - certK.r) → R) :
+    certK.V *ᵥ extendBottomCoordinates (R := R) certK.r n x ∈ cycles dk := by
+  have hD :
+      certK.D *ᵥ extendBottomCoordinates (R := R) certK.r n x = 0 :=
+    diagonal_mulVec_extendBottomCoordinates_eq_zero (R := R) certK x
+  rw [cycles, LinearMap.mem_ker, matLin, Matrix.mulVecLin_apply]
+  have hU :
+      certK.U *ᵥ
+          (dk *ᵥ (certK.V *ᵥ extendBottomCoordinates (R := R) certK.r n x)) = 0 := by
+    calc
+      certK.U *ᵥ
+          (dk *ᵥ (certK.V *ᵥ extendBottomCoordinates (R := R) certK.r n x))
+          = (certK.U * dk * certK.V) *ᵥ
+              extendBottomCoordinates (R := R) certK.r n x := by
+              rw [Matrix.mulVec_mulVec, Matrix.mulVec_mulVec]
+      _ = certK.D *ᵥ extendBottomCoordinates (R := R) certK.r n x := by
+              rw [certK.heq]
+      _ = 0 := hD
+  let z : Fin m → R :=
+    dk *ᵥ (certK.V *ᵥ extendBottomCoordinates (R := R) certK.r n x)
+  have hU' : certK.Uinv *ᵥ (certK.U *ᵥ z) = 0 := by
+    rw [show certK.U *ᵥ z = 0 by simpa [z] using hU]
+    simp
+  have hU'' : (certK.Uinv * certK.U) *ᵥ z = 0 := by
+    simpa [Matrix.mulVec_mulVec] using hU'
+  rw [certK.hUinvU, Matrix.one_mulVec] at hU''
+  simpa [z] using hU''
+
 /-- The coordinate equivalence on cycles induced by an SNF certificate for
 `dk`.
 
@@ -87,9 +219,77 @@ noncomputable def cycleCoordinateEquiv
     {dk : Matrix (Fin m) (Fin n) R}
     (certK : CertificateSNF (A := dk)) :
     cycles dk ≃ₗ[R] (Fin (n - certK.r) → R) := by
-  sorry
+  classical
+  refine
+    { toFun := fun x =>
+        bottomCoordinates (R := R) certK.r n
+          (certK.Vinv *ᵥ (x : Fin n → R))
+      invFun := fun x =>
+        ⟨certK.V *ᵥ extendBottomCoordinates (R := R) certK.r n x,
+          vk_extendBottom_mem_cycles (R := R) certK x⟩
+      map_add' := ?_
+      map_smul' := ?_
+      left_inv := ?_
+      right_inv := ?_ }
+  · intro x y
+    ext i
+    simp [bottomCoordinates, Matrix.mulVec_add]
+  · intro a x
+    ext i
+    simp only [bottomCoordinates, LinearMap.coe_mk, AddHom.coe_mk, Matrix.mulVec,
+      dotProduct, Submodule.coe_smul_of_tower, Pi.smul_apply, smul_eq_mul, RingHom.id_apply]
+    change (∑ x_1, certK.Vinv (bottomRowIndex certK.r n i) x_1 *
+        (a * (x : Fin n → R) x_1)) =
+      a * ∑ x_1, certK.Vinv (bottomRowIndex certK.r n i) x_1 * (x : Fin n → R) x_1
+    rw [Finset.mul_sum]
+    refine Finset.sum_congr rfl ?_
+    intro j _
+    ring
+  · intro x
+    ext j
+    have hrn : certK.r ≤ n := by
+      have := certK.rankCutoff_le_min
+      omega
+    calc
+      (certK.V *ᵥ
+          extendBottomCoordinates (R := R) certK.r n
+            (bottomCoordinates (R := R) certK.r n
+              (certK.Vinv *ᵥ (x : Fin n → R)))) j
+          = (certK.V *ᵥ (certK.Vinv *ᵥ (x : Fin n → R))) j := by
+            congr 1
+            exact extendBottomCoordinates_bottomCoordinates_of_eq_zero
+              (R := R) hrn (certK.Vinv *ᵥ (x : Fin n → R))
+              (fun k hk => vinv_mulVec_eq_zero_of_mem_cycles_of_lt
+                (R := R) certK x hk)
+      _ = ((certK.V * certK.Vinv) *ᵥ (x : Fin n → R)) j := by
+            rw [Matrix.mulVec_mulVec]
+      _ = (x : Fin n → R) j := by
+            rw [certK.hVVinv, Matrix.one_mulVec]
+  · intro x
+    have hrn : certK.r ≤ n := by
+      have := certK.rankCutoff_le_min
+      omega
+    calc
+      bottomCoordinates (R := R) certK.r n
+          (certK.Vinv *ᵥ
+            ((certK.V *ᵥ extendBottomCoordinates (R := R) certK.r n x))) =
+          bottomCoordinates (R := R) certK.r n
+            (((certK.Vinv * certK.V) *ᵥ
+              extendBottomCoordinates (R := R) certK.r n x)) := by
+            rw [Matrix.mulVec_mulVec]
+      _ = bottomCoordinates (R := R) certK.r n
+            (extendBottomCoordinates (R := R) certK.r n x) := by
+            rw [certK.hVinvV, Matrix.one_mulVec]
+      _ = x := bottomCoordinates_extendBottomCoordinates (R := R) hrn x
 
 end CertificateSNF
+
+omit [IsDomain R] [IsPrincipalIdealRing R] [SageSerializable R] in
+theorem bottomCoordinates_mulVec_eq_bottomRows_mulVec
+    (r : ℕ) (A : Matrix (Fin n) (Fin p) R) (x : Fin p → R) :
+    bottomCoordinates (R := R) r n (A *ᵥ x) = bottomRows r A *ᵥ x := by
+  ext i
+  simp [bottomCoordinates, bottomRows, Matrix.mulVec]
 
 namespace ChainQuotientCert
 
@@ -137,7 +337,61 @@ theorem map_boundaryImage_eq_presentationRange
           (dk := dk) cert.certK :
           cycles dk →ₗ[R] (Fin (n - cert.certK.r) → R)) =
       matRange cert.M := by
-  sorry
+  ext y
+  constructor
+  · rintro ⟨x, hx, hxy⟩
+    change (x : Fin n → R) ∈ matRange dk1 at hx
+    rcases hx with ⟨z, hz⟩
+    refine ⟨z, ?_⟩
+    rw [← hxy]
+    rw [matLin, Matrix.mulVecLin_apply]
+    symm
+    change
+      bottomCoordinates (R := R) cert.certK.r n
+        (cert.certK.Vinv *ᵥ (x : Fin n → R)) = cert.M *ᵥ z
+    rw [← hz]
+    calc
+      bottomCoordinates (R := R) cert.certK.r n
+          (cert.certK.Vinv *ᵥ (dk1 *ᵥ z))
+          = bottomCoordinates (R := R) cert.certK.r n
+              ((cert.certK.Vinv * dk1) *ᵥ z) := by
+              rw [Matrix.mulVec_mulVec]
+      _ = bottomRows cert.certK.r (cert.certK.Vinv * dk1) *ᵥ z := by
+              rw [bottomCoordinates_mulVec_eq_bottomRows_mulVec]
+      _ = cyclePresentationMatrix cert.certK dk1 *ᵥ z := by
+              rfl
+      _ = cert.M *ᵥ z := by
+              rw [cert.hM]
+  · rintro ⟨z, hz⟩
+    let x : cycles dk :=
+      ⟨dk1 *ᵥ z, by
+        rw [cycles, LinearMap.mem_ker, matLin, Matrix.mulVecLin_apply]
+        calc
+          dk *ᵥ (dk1 *ᵥ z) = (dk * dk1) *ᵥ z := by
+              rw [Matrix.mulVec_mulVec]
+          _ = 0 := by rw [cert.hCC, Matrix.zero_mulVec]⟩
+    refine ⟨x, ?_, ?_⟩
+    · change (x : Fin n → R) ∈ matRange dk1
+      exact ⟨z, by rw [matLin, Matrix.mulVecLin_apply]⟩
+    · rw [← hz]
+      change
+        bottomCoordinates (R := R) cert.certK.r n
+          (cert.certK.Vinv *ᵥ (x : Fin n → R)) = cert.M *ᵥ z
+      calc
+        bottomCoordinates (R := R) cert.certK.r n
+            (cert.certK.Vinv *ᵥ (x : Fin n → R))
+            = bottomCoordinates (R := R) cert.certK.r n
+                (cert.certK.Vinv *ᵥ (dk1 *ᵥ z)) := by
+                rfl
+        _ = bottomCoordinates (R := R) cert.certK.r n
+              ((cert.certK.Vinv * dk1) *ᵥ z) := by
+              rw [Matrix.mulVec_mulVec]
+        _ = bottomRows cert.certK.r (cert.certK.Vinv * dk1) *ᵥ z := by
+              rw [bottomCoordinates_mulVec_eq_bottomRows_mulVec]
+        _ = cyclePresentationMatrix cert.certK dk1 *ᵥ z := by
+              rfl
+        _ = cert.M *ᵥ z := by
+              rw [cert.hM]
 
 /-- A chain quotient certificate identifies the actual algebraic homology
 quotient

@@ -68,6 +68,35 @@ example : True := by
 -/
 syntax (name := homologyTac) "homology " term ", " term (" as " ident)? : tactic
 
+private def snfPayloadFromObject (j : Lean.Json) : TacticM SnfSageJsonPayload := do
+  let U ← IO.ofExcept (j.getObjVal? "U")
+  let Uinv ← IO.ofExcept (j.getObjVal? "Uinv")
+  let D ← IO.ofExcept (j.getObjVal? "D")
+  let V ← IO.ofExcept (j.getObjVal? "V")
+  let Vinv ← IO.ofExcept (j.getObjVal? "Vinv")
+  pure { U := U, Uinv := Uinv, D := D, V := V, Vinv := Vinv }
+
+private def callHomologyWitnesses (XExpr kExpr : Expr) :
+    TacticM (SnfSageJsonPayload × SnfSageJsonPayload) := do
+  let dim ← evalNatSafe kExpr
+  let rawExpr ← mkAppM ``FiniteFacetComplex.toRawFacets #[XExpr]
+  let rows ← evalRawFacetStringListSafe rawExpr
+  let facetsStr := stringListToMatString rows
+  let reqJson := Lean.Json.mkObj [
+    ("op", Lean.Json.str "homology"),
+    ("facets", Lean.Json.str facetsStr),
+    ("dim", Lean.Json.num dim),
+    ("reduced", Lean.Json.bool false),
+    ("base_ring", Lean.Json.str "ZZ"),
+    ("witnesses", Lean.Json.bool true)
+  ]
+  let json ← sendSageRequest reqJson
+  let snfKJson ← IO.ofExcept (json.getObjVal? "snf_k")
+  let snfMJson ← IO.ofExcept (json.getObjVal? "snf_M")
+  let snfK ← snfPayloadFromObject snfKJson
+  let snfM ← snfPayloadFromObject snfMJson
+  pure (snfK, snfM)
+
 @[tactic homologyTac] def evalHomologyTac : Tactic := fun stx => do
   let (certName, XStx, kStx) ←
     match stx with
@@ -95,10 +124,12 @@ syntax (name := homologyTac) "homology " term ", " term (" as " ident)? : tactic
   let dk1Expr ← mkAppOptM ``boundaryK #[
     some (mkConst ``Int), none, none, none, none, none, some XExpr, some k1Expr]
 
-  let certK ← mkSNFCertExpr dkExpr -- obligation 1 done!
+  let (snfKPayload, snfMPayload) ← callHomologyWitnesses XExpr kExpr
+
+  let certK ← mkSNFCertExprFromPayload dkExpr snfKPayload -- obligation 1 done!
 
   let MExpr ← mkAppM ``cyclePresentationMatrix #[certK, dk1Expr] --obligation 2
-  let certM ← mkSNFCertExpr MExpr --obligation 3
+  let certM ← mkSNFCertExprFromPayload MExpr snfMPayload --obligation 3
 
   let prodExpr ← mkAppM ``HMul.hMul #[dkExpr, dk1Expr]
   let prodTy ← inferType prodExpr
