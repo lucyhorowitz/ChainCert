@@ -26,6 +26,13 @@ def firstZeroDiag {R : Type*} [Zero R] [DecidableEq R] (D : Matrix (Fin m) (Fin 
   | some i => i.val
   | none => min m n
 
+/-- Adjacent diagonal divisibility condition for SNF, restricted to entries
+within the rank prefix (`j < firstZeroDiag D`). -/
+def divChainWithinRank {R : Type*} [Dvd R] [Zero R] [DecidableEq R]
+    (D : Matrix (Fin m) (Fin n) R) : Prop :=
+  ∀ i j : Fin (min m n), i.val + 1 = j.val →
+    j.val < firstZeroDiag D → diagEntry D i ∣ diagEntry D j
+
 /-- The linear map `R^n → R^m` represented by a matrix `A` via `mulVec`. -/
 def matLin {R : Type*} [CommSemiring R] (A : Matrix (Fin m) (Fin n) R) :
     (Fin n → R) →ₗ[R] (Fin m → R) :=
@@ -51,8 +58,7 @@ structure CertificateSNF [DecidableEq R] (A : Matrix (Fin m) (Fin n) R) where
   hUUinv : U * Uinv = 1 := by native_decide
   hVVinv : V * Vinv = 1 := by native_decide
   heq : U * A * V = D  := by native_decide
-  hdiv : ∀ i j : Fin (min m n), i.val + 1 = j.val →
-           diagEntry D i ∣ diagEntry D j := by native_decide
+  hdiv : divChainWithinRank D := by native_decide
 
 namespace CertificateSNF
 

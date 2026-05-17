@@ -310,12 +310,6 @@ end DiagShape
 
 section DiagDivisibility
 
-/-- Adjacent diagonal divisibility condition for SNF, restricted to entries
-within the rank prefix (`j < firstZeroDiag D`). -/
-def divChainWithinRank (D : Matrix (Fin m) (Fin n) R) : Prop :=
-  ∀ i j : Fin (min m n), i.val + 1 = j.val →
-    j.val < firstZeroDiag D → diagEntry D i ∣ diagEntry D j
-
 structure DivMismatch (m n : ℕ) (R : Type*) where
   i : Fin (min m n)
   j : Fin (min m n)

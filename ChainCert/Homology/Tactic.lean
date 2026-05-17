@@ -67,6 +67,7 @@ example : True := by
 ```
 -/
 syntax (name := homologyTac) "homology " term ", " term (" as " ident)? : tactic
+syntax (name := homologyCertCmd) "homology_cert " term ", " term " as " ident : command
 
 private def snfPayloadFromObject (j : Lean.Json) : TacticM SnfSageJsonPayload := do
   let U ← IO.ofExcept (j.getObjVal? "U")
@@ -96,6 +97,122 @@ private def callHomologyWitnesses (XExpr kExpr : Expr) :
   let snfK ← snfPayloadFromObject snfKJson
   let snfM ← snfPayloadFromObject snfMJson
   pure (snfK, snfM)
+
+private def addAbbrevDecl (name : Name) (type value : Expr) : Term.TermElabM Unit := do
+  addAndCompile <| Declaration.defnDecl
+    { name := name
+      levelParams := []
+      safety := DefinitionSafety.safe
+      hints := ReducibilityHints.regular 0
+      type := ← instantiateMVars type
+      value := ← instantiateMVars value }
+
+private def runTacticAsTerm (x : TacticM α) : Term.TermElabM α := do
+  let (a, _) ← x { elaborator := `homology_cert, recover := false } |>.run { goals := [] }
+  pure a
+
+private def scopedName (n : Name) : Term.TermElabM Name := do
+  if n.isInternal then
+    pure n
+  else
+    return (← getCurrNamespace) ++ n
+
+elab_rules : command
+| `(homology_cert $XStx:term, $kStx:term as $h:ident) =>
+  Lean.Elab.Command.liftTermElabM do
+    let baseName ← scopedName h.getId
+    let XExpr ← Term.elabTerm XStx none
+    let kExpr ← Term.elabTerm kStx (some (mkConst ``Nat))
+    Term.synthesizeSyntheticMVarsNoPostponing
+
+    let XTy ← inferType XExpr
+    let (``FiniteFacetComplex, #[ιExpr]) := XTy.getAppFnArgs
+      | throwError "homology_cert: expected `X : FiniteFacetComplex ι`, got {XTy}"
+
+    let kTy ← inferType kExpr
+    unless (← isDefEq kTy (mkConst ``Nat)) do
+      throwError "homology_cert: expected `k : Nat`, got {kTy}"
+
+    let k1Expr ← mkAppM ``Nat.succ #[kExpr]
+    let dkExpr ← mkAppOptM ``boundaryK #[
+      some (mkConst ``Int), none, none, none, none, none, some XExpr, some kExpr]
+    let dk1Expr ← mkAppOptM ``boundaryK #[
+      some (mkConst ``Int), none, none, none, none, none, some XExpr, some k1Expr]
+
+    let (snfKPayload, snfMPayload) ←
+      runTacticAsTerm (callHomologyWitnesses XExpr kExpr)
+
+    let dkName := baseName.str "dk"
+    let dkTy ← inferType dkExpr
+    logInfo m!"homology_cert: adding {dkName}"
+    addAbbrevDecl dkName dkTy dkExpr
+    let dkConst := mkConst dkName
+
+    let dk1Name := baseName.str "dk1"
+    let dk1Ty ← inferType dk1Expr
+    logInfo m!"homology_cert: adding {dk1Name}"
+    addAbbrevDecl dk1Name dk1Ty dk1Expr
+    let dk1Const := mkConst dk1Name
+
+    let certKName := baseName.str "certK"
+    logInfo m!"homology_cert: adding {certKName}"
+    let certKConst ← declareSNFCertFromPayload certKName dkConst snfKPayload
+
+    let MExpr ← mkAppM ``cyclePresentationMatrix #[certKConst, dk1Const]
+    let MName := baseName.str "M"
+    let MTy ← inferType MExpr
+    logInfo m!"homology_cert: adding {MName}"
+    addAbbrevDecl MName MTy MExpr
+    let MConst := mkConst MName
+
+    let certMName := baseName.str "certM"
+    logInfo m!"homology_cert: adding {certMName}"
+    let certMConst ← declareSNFCertFromPayload certMName MConst snfMPayload
+
+    let prodExpr ← mkAppM ``HMul.hMul #[dkConst, dk1Const]
+    let prodTy ← inferType prodExpr
+    let zeroTy ← mkAppM ``Zero #[prodTy]
+    let zeroInst ← synthInstance zeroTy
+    let zeroExpr ← mkAppOptM ``Zero.zero #[some prodTy, some zeroInst]
+    let hCCTy ← mkEq prodExpr zeroExpr
+    logInfo m!"homology_cert: proving chain condition"
+    let hCC ← runTacticAsTerm (Lean.Elab.Tactic.elabNativeDecideCore `homology_cert hCCTy)
+
+    let hMTy ← mkEq MConst MExpr
+    let hM ← mkEqRefl MConst
+    unless (← isDefEq (← inferType hM) hMTy) do
+      throwError "homology_cert: internal error constructing presentation matrix equality"
+
+    let qcExpr ← mkAppOptM ``ChainQuotientCert.mk #[
+      none, none, none,
+      some (mkConst ``Int),
+      none, none,
+      some dkConst,
+      some dk1Const,
+      some certKConst,
+      some hCC,
+      some MConst,
+      some hM,
+      some certMConst]
+
+    let finalExpr ← mkAppOptM ``CertificateHomology.mk #[
+      some (mkConst ``Int),
+      none, none,
+      some ιExpr,
+      none, none, none,
+      some XExpr,
+      some kExpr,
+      some qcExpr]
+
+    let finalTy ← mkAppOptM ``CertificateHomology #[
+      some (mkConst ``Int),
+      none, none,
+      some ιExpr,
+      none, none, none,
+      some XExpr,
+      some kExpr]
+    logInfo m!"homology_cert: adding {baseName}"
+    addAbbrevDecl baseName finalTy finalExpr
 
 @[tactic homologyTac] def evalHomologyTac : Tactic := fun stx => do
   let (certName, XStx, kStx) ←

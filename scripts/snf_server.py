@@ -43,9 +43,9 @@ def handle_snf(req):
         "status": "ok",
         "D": mat_to_rows(D),
         "U": mat_to_rows(U),
-        "Uinv": mat_to_rows(U.inverse()),
+        "Uinv": mat_to_rows(matrix(ZZ, U.inverse())),
         "V": mat_to_rows(V),
-        "Vinv": mat_to_rows(V.inverse()),
+        "Vinv": mat_to_rows(matrix(ZZ, V.inverse())),
     }
 
 def _boundary_matrix(facets, n):
@@ -116,12 +116,13 @@ def _parse_base_ring(name):
 
 def _snf_witness_block(A):
     """Return {U, Uinv, V, Vinv, D} for A.smith_form() as JSON-ready rows."""
+    A = matrix(ZZ, A)
     D, U, V = A.smith_form()
     return {
         "U": mat_to_rows(U),
-        "Uinv": mat_to_rows(U.inverse()),
+        "Uinv": mat_to_rows(matrix(ZZ, U.inverse())),
         "V": mat_to_rows(V),
-        "Vinv": mat_to_rows(V.inverse()),
+        "Vinv": mat_to_rows(matrix(ZZ, V.inverse())),
         "D": mat_to_rows(D),
     }
 
@@ -174,12 +175,12 @@ def handle_homology(req):
         # M = bottom (n - r) rows of V_k^{-1} · ∂_{k+1}. The cycle-coordinate
         # block; under the change of basis V_k, ker(∂_k) corresponds to the
         # last n - r basis vectors.
-        Vk_inv = Vk.inverse()
+        Vk_inv = matrix(ZZ, Vk.inverse())
         VkInvDk1 = Vk_inv * dk1
-        M = VkInvDk1.matrix_from_rows(range(r, n_cells_k))
+        M = matrix(ZZ, VkInvDk1.matrix_from_rows(range(r, n_cells_k)))
         result["snf_k"] = {
             "U": mat_to_rows(Uk),
-            "Uinv": mat_to_rows(Uk.inverse()),
+            "Uinv": mat_to_rows(matrix(ZZ, Uk.inverse())),
             "V": mat_to_rows(Vk),
             "Vinv": mat_to_rows(Vk_inv),
             "D": mat_to_rows(Dk),

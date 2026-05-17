@@ -127,6 +127,10 @@ unsafe def evalStringExpr (e : Expr) : MetaM String :=
 opaque evalStringExprSafe (e : Expr) : MetaM String
 
 private def parseSerializableElemExpr (R : Expr) (s : String) : TacticM Expr := do
+  if (← isDefEq R (mkConst ``Int)) then
+    match s.toInt? with
+    | some z => return mkIntLit z
+    | none => throwError "snf: failed to decode Sage entry `{s}` as ring `ZZ`"
   let serializableTy ← mkAppM ``SageSerializable #[R]
   let serializableInst ← synthInstance serializableTy
   let parseExpr ← mkAppOptM ``SageSerializable.fromSageString
@@ -147,22 +151,55 @@ private def decodeSerializableRowsExpr
   let rows ← ChainCert.SageDecode.decodeStringMatrix j
   rows.mapM fun row => row.mapM (parseSerializableElemExpr R)
 
+private def decodeSerializableSparseEntriesExpr
+    (R : Expr) (j : Lean.Json) : TacticM (List (Nat × Nat × Expr)) := do
+  let rows ← ChainCert.SageDecode.decodeStringMatrix j
+  let rec goRow (i j : Nat) (row : List String) (acc : List (Nat × Nat × Expr)) :
+      TacticM (List (Nat × Nat × Expr)) := do
+    match row with
+    | [] => pure acc
+    | s :: row =>
+        let acc ←
+          if s = "0" then
+            pure acc
+          else
+            pure ((i, j, ← parseSerializableElemExpr R s) :: acc)
+        goRow i (j + 1) row acc
+  let rec goRows (i : Nat) (rows : List (List String)) (acc : List (Nat × Nat × Expr)) :
+      TacticM (List (Nat × Nat × Expr)) := do
+    match rows with
+    | [] => pure acc
+    | row :: rows =>
+        let acc ← goRow i 0 row acc
+        goRows (i + 1) rows acc
+  goRows 0 rows []
+
 private def mkListExpr (α : Expr) (xs : List Expr) : TacticM Expr := do
   let nilExpr ← mkAppOptM ``List.nil #[some α]
   xs.foldrM
     (fun x acc => mkAppOptM ``List.cons #[some α, some x, some acc])
     nilExpr
 
+private def mkSparseEntryExpr (R : Expr) (entry : Nat × Nat × Expr) : TacticM Expr := do
+  let natTy := mkConst ``Nat
+  let natProdR ← mkAppM ``Prod #[natTy, R]
+  let colVal ← mkAppOptM ``Prod.mk #[
+    some natTy, some R, some (mkNatLit entry.2.1), some entry.2.2]
+  mkAppOptM ``Prod.mk #[
+    some natTy, some natProdR, some (mkNatLit entry.1), some colVal]
+
 /-- Build `rowsToMatrix rows mExpr nExpr : Matrix (Fin mExpr) (Fin nExpr) R`.
 `mExpr`/`nExpr` are arbitrary Nat-valued Exprs (not necessarily literals). -/
-private def rowsExprToMatrixExpr
-    (R : Expr) (rows : List (List Expr)) (mExpr nExpr : Expr) : TacticM Expr := do
-  let rowExprs ← rows.mapM (mkListExpr R)
-  let listR ← mkAppM ``List #[R]
-  let rowsExpr ← mkListExpr listR rowExprs
+private def sparseEntriesToMatrixExpr
+    (R : Expr) (entries : List (Nat × Nat × Expr)) (mExpr nExpr : Expr) : TacticM Expr := do
+  let natTy := mkConst ``Nat
+  let natProdR ← mkAppM ``Prod #[natTy, R]
+  let entryTy ← mkAppM ``Prod #[natTy, natProdR]
+  let entryExprs ← entries.mapM (mkSparseEntryExpr R)
+  let entriesExpr ← mkListExpr entryTy entryExprs
   let zeroTy ← mkAppM ``Zero #[R]
   let _zeroInst ← synthInstance zeroTy
-  mkAppM ``ChainCert.SageDecode.rowsToMatrix #[rowsExpr, mExpr, nExpr]
+  mkAppM ``ChainCert.SageDecode.sparseRowsToMatrix #[entriesExpr, mExpr, nExpr]
 
 /-- Build `Matrix finM finN R` as an Expr, reusing existing `Fin _` Exprs directly. -/
 private def matrixTyExprFromFin (R finM finN : Expr) : MetaM Expr :=
@@ -186,105 +223,97 @@ private def mkOneOfType (α : Expr) : TacticM Expr := do
 private def mkMulExpr (a b : Expr) : TacticM Expr :=
   mkAppM ``HMul.hMul #[a, b]
 
-private def mkDiagEntryExpr (D i : Expr) : TacticM Expr :=
-  mkAppM ``diagEntry #[D, i]
-
 private def mkFirstZeroDiagExpr (D : Expr) : TacticM Expr :=
   mkAppM ``firstZeroDiag #[D]
-
-private def mkFinValExpr (i : Expr) : TacticM Expr :=
-  mkAppM ``Fin.val #[i]
 
 private def mkDecideProofExpr (p : Expr) : TacticM Expr :=
   Lean.Elab.Tactic.elabNativeDecideCore `snf p
 
-private def mkIsDiagonalExpr (R mExpr nExpr DExpr : Expr) : TacticM Expr := do
-  let zeroTy ← mkAppM ``Zero #[R]
-  let zeroInst ← synthInstance zeroTy
-  mkAppOptM ``IsDiagonal #[
-    some R, some mExpr, some nExpr, some DExpr, some zeroInst]
+private def addRegularDefDecl (name : Name) (type value : Expr) :
+    Lean.Elab.Term.TermElabM Unit := do
+  addAndCompile <| Declaration.defnDecl
+    { name := name
+      levelParams := []
+      safety := DefinitionSafety.safe
+      hints := ReducibilityHints.regular 0
+      type := ← instantiateMVars type
+      value := ← instantiateMVars value }
 
-private def mkRankProofType (mExpr nExpr DExpr rExpr R : Expr) : TacticM Expr := do
+private def runTacticAsTerm (elaborator : Name) (x : TacticM α) :
+    Lean.Elab.Term.TermElabM α := do
+  let (a, _) ← x { elaborator := elaborator, recover := false } |>.run { goals := [] }
+  pure a
+
+private def mkVerifyDiagProofExpr (DExpr : Expr) : TacticM Expr := do
+  let hTy ← mkAppM ``verifyDiag #[DExpr]
+  mkDecideProofExpr hTy
+
+private def mkHdiagProofExpr (DExpr hVerify : Expr) : TacticM Expr :=
+  mkAppM ``ChainCert.SNF.isDiagonal_of_verifyDiag #[DExpr, hVerify]
+
+private def mkHdivProofExpr (_DExpr hVerify : Expr) : TacticM Expr :=
+  pure (mkProj ``And 1 hVerify)
+
+private def mkDivChainWithinRankExpr (mExpr nExpr R DExpr : Expr) : TacticM Expr := do
+  let dvdInst ← synthInstance (← mkAppM ``Dvd #[R])
+  let zeroInst ← synthInstance (← mkAppM ``Zero #[R])
+  let decEqInst ← synthInstance (← mkAppM ``DecidableEq #[R])
+  mkAppOptM ``divChainWithinRank #[
+    some mExpr, some nExpr, some R, some dvdInst, some zeroInst, some decEqInst, some DExpr]
+
+private def mkRankProofExpr (mExpr nExpr DExpr hVerify : Expr) : TacticM Expr := do
   let minExpr ← mkAppM ``Nat.min #[mExpr, nExpr]
   let finMinTy ← mkAppM ``Fin #[minExpr]
   withLocalDeclD `i finMinTy fun i => do
-    let diagI ← mkDiagEntryExpr DExpr i
-    let zeroR ← mkZeroOfType R
-    let lhs ← mkEq diagI zeroR
-    let iVal ← mkFinValExpr i
-    let rhs ← mkAppM ``Nat.le #[rExpr, iVal]
-    let body ← mkAppM ``Iff #[lhs, rhs]
-    mkForallFVars #[i] body
-
-private def mkRankProofExpr (mExpr nExpr DExpr rExpr R : Expr) : TacticM Expr := do
-  let hTy ← mkAppM ``verifyDiag #[DExpr]
-  let hdiagOk ← mkDecideProofExpr hTy
-  let minExpr ← mkAppM ``Nat.min #[mExpr, nExpr]
-  let finMinTy ← mkAppM ``Fin #[minExpr]
-  let proof ←
-    withLocalDeclD `i finMinTy fun i => do
-      let theoremExpr ←
-        mkAppM ``ChainCert.SNF.diagEntry_eq_zero_iff_ge_firstZeroDiag_of_verifyDiag
-          #[DExpr, i, hdiagOk]
-      mkLambdaFVars #[i] theoremExpr
-  let proofTy ← inferType proof
-  let expectedTy ← mkRankProofType mExpr nExpr DExpr rExpr R
-  unless (← isDefEq proofTy expectedTy) do
-    throwError "snf: internal error, rank proof has type {proofTy}, expected {expectedTy}"
-  pure proof
+    let theoremExpr ←
+      mkAppM ``ChainCert.SNF.diagEntry_eq_zero_iff_ge_firstZeroDiag_of_verifyDiag
+        #[DExpr, i, hVerify]
+    mkLambdaFVars #[i] theoremExpr
 
 private def mkDivisibilityProofType (mExpr nExpr DExpr : Expr) : TacticM Expr := do
   let minExpr ← mkAppM ``Nat.min #[mExpr, nExpr]
   let finMinTy ← mkAppM ``Fin #[minExpr]
   withLocalDeclD `i finMinTy fun i => do
     withLocalDeclD `j finMinTy fun j => do
-      let iVal ← mkFinValExpr i
-      let jVal ← mkFinValExpr j
+      let iVal ← mkAppM ``Fin.val #[i]
+      let jVal ← mkAppM ``Fin.val #[j]
       let iSucc ← mkAppM ``Nat.succ #[iVal]
       let hTy ← mkEq iSucc jVal
       withLocalDeclD `h hTy fun h => do
-        let diagI ← mkDiagEntryExpr DExpr i
-        let diagJ ← mkDiagEntryExpr DExpr j
-        let body ← mkAppM ``Dvd.dvd #[diagI, diagJ]
-        mkForallFVars #[i, j, h] body
-
+        let cutoff ← mkAppM ``firstZeroDiag #[DExpr]
+        let hjTy ← mkAppM ``LT.lt #[jVal, cutoff]
+        withLocalDeclD `hj hjTy fun hj => do
+          let diagI ← mkAppM ``diagEntry #[DExpr, i]
+          let diagJ ← mkAppM ``diagEntry #[DExpr, j]
+          let body ← mkAppM ``Dvd.dvd #[diagI, diagJ]
+          mkForallFVars #[i, j, h, hj] body
 
 /-- Build a `CertificateSNF AExpr` expression from already available Sage SNF
 JSON, then elaborate and type-check it. -/
 def mkSNFCertExprFromPayload (AExpr : Expr) (payload : SnfSageJsonPayload) :
     TacticM Expr := do
   let (finM, finN, mExpr, nExpr, R) ← ensureSnfInput AExpr
-  -- logInfo m!"snf input validated: m={mExpr}, n={nExpr}, ring={R}"
   let ⟨uJson, uinvJson, dJson, vJson, vinvJson⟩ := payload
-  let uRowsExpr ← decodeSerializableRowsExpr R uJson
-  let uinvRowsExpr ← decodeSerializableRowsExpr R uinvJson
-  let dRowsExpr ← decodeSerializableRowsExpr R dJson
-  let vRowsExpr ← decodeSerializableRowsExpr R vJson
-  let vinvRowsExpr ← decodeSerializableRowsExpr R vinvJson
+  let uEntriesExpr ← decodeSerializableSparseEntriesExpr R uJson
+  let uinvEntriesExpr ← decodeSerializableSparseEntriesExpr R uinvJson
+  let dEntriesExpr ← decodeSerializableSparseEntriesExpr R dJson
+  let vEntriesExpr ← decodeSerializableSparseEntriesExpr R vJson
+  let vinvEntriesExpr ← decodeSerializableSparseEntriesExpr R vinvJson
 
-  let UExpr ← rowsExprToMatrixExpr R uRowsExpr mExpr mExpr
-  let UinvExpr ← rowsExprToMatrixExpr R uinvRowsExpr mExpr mExpr
-  let DExpr ← rowsExprToMatrixExpr R dRowsExpr mExpr nExpr
-  let VExpr ← rowsExprToMatrixExpr R vRowsExpr nExpr nExpr
-  let VinvExpr ← rowsExprToMatrixExpr R vinvRowsExpr nExpr nExpr
+  let UExpr ← sparseEntriesToMatrixExpr R uEntriesExpr mExpr mExpr
+  let UinvExpr ← sparseEntriesToMatrixExpr R uinvEntriesExpr mExpr mExpr
+  let DExpr ← sparseEntriesToMatrixExpr R dEntriesExpr mExpr nExpr
+  let VExpr ← sparseEntriesToMatrixExpr R vEntriesExpr nExpr nExpr
+  let VinvExpr ← sparseEntriesToMatrixExpr R vinvEntriesExpr nExpr nExpr
 
   let matMMTy ← matrixTyExprFromFin R finM finM
-  let matMNTy ← matrixTyExprFromFin R finM finN
   let matNNTy ← matrixTyExprFromFin R finN finN
-  ensureMatrixExprHasType UExpr matMMTy
-  ensureMatrixExprHasType UinvExpr matMMTy
-  ensureMatrixExprHasType DExpr matMNTy
-  ensureMatrixExprHasType VExpr matNNTy
-  ensureMatrixExprHasType VinvExpr matNNTy
-
-  let certTy ← certTypeFor AExpr
 
   let rExpr ← mkAppM ``firstZeroDiag #[DExpr]
 
-  let hdiagTy ← mkIsDiagonalExpr R mExpr nExpr DExpr
-  let hdiagExpr ← mkDecideProofExpr hdiagTy
-
-  let hrankExpr ← mkRankProofExpr mExpr nExpr DExpr rExpr R
+  let hVerify ← mkVerifyDiagProofExpr DExpr
+  let hdiagExpr ← mkHdiagProofExpr DExpr hVerify
+  let hrankExpr ← mkRankProofExpr mExpr nExpr DExpr hVerify
 
   let UUinvExpr ← mkMulExpr UExpr UinvExpr
   let oneMM ← mkOneOfType matMMTy
@@ -301,8 +330,7 @@ def mkSNFCertExprFromPayload (AExpr : Expr) (payload : SnfSageJsonPayload) :
   let heqTy ← mkEq UAVExpr DExpr
   let heqExpr ← mkDecideProofExpr heqTy
 
-  let hdivTy ← mkDivisibilityProofType mExpr nExpr DExpr
-  let hdivExpr ← mkDecideProofExpr hdivTy
+  let hdivExpr ← mkHdivProofExpr DExpr hVerify
 
   let certExpr ← mkAppOptM ``CertificateSNF.mk #[
     some mExpr, some nExpr,
@@ -324,12 +352,155 @@ def mkSNFCertExprFromPayload (AExpr : Expr) (payload : SnfSageJsonPayload) :
     some hdivExpr
   ]
 
-  let certExprTy ← inferType certExpr
-  unless (← isDefEq certExprTy certTy) do
-    throwError "snf: internal error, constructed certificate has wrong type\n\
-     actual: {certExprTy}\n\
-     expected: {certTy}"
   pure certExpr
+
+/-- Declare an SNF certificate as a family of named definitions.
+
+This is intended for command elaborators that need a persistent certificate for
+larger matrices. Naming the witness matrices first keeps Lean from checking one
+large inlined certificate term. -/
+def declareSNFCertFromPayload (baseName : Name) (AExpr : Expr)
+    (payload : SnfSageJsonPayload) : Lean.Elab.Term.TermElabM Expr := do
+  logInfo m!"snf decl: decoding {baseName}"
+  let (finM, finN, mExpr, nExpr, R, UExpr, UinvExpr, DExpr, VExpr, VinvExpr) ←
+    runTacticAsTerm `snf do
+      let (finM, finN, mExpr, nExpr, R) ← ensureSnfInput AExpr
+      let ⟨uJson, uinvJson, dJson, vJson, vinvJson⟩ := payload
+      let uEntriesExpr ← decodeSerializableSparseEntriesExpr R uJson
+      let uinvEntriesExpr ← decodeSerializableSparseEntriesExpr R uinvJson
+      let dEntriesExpr ← decodeSerializableSparseEntriesExpr R dJson
+      let vEntriesExpr ← decodeSerializableSparseEntriesExpr R vJson
+      let vinvEntriesExpr ← decodeSerializableSparseEntriesExpr R vinvJson
+      let UExpr ← sparseEntriesToMatrixExpr R uEntriesExpr mExpr mExpr
+      let UinvExpr ← sparseEntriesToMatrixExpr R uinvEntriesExpr mExpr mExpr
+      let DExpr ← sparseEntriesToMatrixExpr R dEntriesExpr mExpr nExpr
+      let VExpr ← sparseEntriesToMatrixExpr R vEntriesExpr nExpr nExpr
+      let VinvExpr ← sparseEntriesToMatrixExpr R vinvEntriesExpr nExpr nExpr
+      pure (finM, finN, mExpr, nExpr, R, UExpr, UinvExpr, DExpr, VExpr, VinvExpr)
+
+  let matMMTy ← matrixTyExprFromFin R finM finM
+  let matMNTy ← matrixTyExprFromFin R finM finN
+  let matNNTy ← matrixTyExprFromFin R finN finN
+
+  let UName := baseName.str "U"
+  logInfo m!"snf decl: adding {UName}"
+  addRegularDefDecl UName matMMTy UExpr
+  let UConst := mkConst UName
+
+  let UinvName := baseName.str "Uinv"
+  logInfo m!"snf decl: adding {UinvName}"
+  addRegularDefDecl UinvName matMMTy UinvExpr
+  let UinvConst := mkConst UinvName
+
+  let DName := baseName.str "D"
+  logInfo m!"snf decl: adding {DName}"
+  addRegularDefDecl DName matMNTy DExpr
+  let DConst := mkConst DName
+
+  let VName := baseName.str "V"
+  logInfo m!"snf decl: adding {VName}"
+  addRegularDefDecl VName matNNTy VExpr
+  let VConst := mkConst VName
+
+  let VinvName := baseName.str "Vinv"
+  logInfo m!"snf decl: adding {VinvName}"
+  addRegularDefDecl VinvName matNNTy VinvExpr
+  let VinvConst := mkConst VinvName
+
+  let rName := baseName.str "r"
+  let rExpr ← mkAppM ``firstZeroDiag #[DConst]
+  logInfo m!"snf decl: adding {rName}"
+  addRegularDefDecl rName (mkConst ``Nat) rExpr
+  let rConst := mkConst rName
+
+  let hVerifyName := baseName.str "hVerify"
+  logInfo m!"snf decl: adding {hVerifyName}"
+  let hVerifyTy ← mkAppM ``verifyDiag #[DConst]
+  let hVerifyExpr ← runTacticAsTerm `snf (mkDecideProofExpr hVerifyTy)
+  addRegularDefDecl hVerifyName hVerifyTy hVerifyExpr
+  let hVerifyConst := mkConst hVerifyName
+
+  let hdiagName := baseName.str "hdiag"
+  logInfo m!"snf decl: adding {hdiagName}"
+  let hdiagExpr ← runTacticAsTerm `snf (mkHdiagProofExpr DConst hVerifyConst)
+  let hdiagTy ← inferType hdiagExpr
+  addRegularDefDecl hdiagName hdiagTy hdiagExpr
+  let hdiagConst := mkConst hdiagName
+
+  let hrankName := baseName.str "hrank"
+  logInfo m!"snf decl: adding {hrankName}"
+  let hrankExpr ← runTacticAsTerm `snf (mkRankProofExpr mExpr nExpr DConst hVerifyConst)
+  let hrankTy ← inferType hrankExpr
+  addRegularDefDecl hrankName hrankTy hrankExpr
+  let hrankConst := mkConst hrankName
+
+  let hUUinvName := baseName.str "hUUinv"
+  logInfo m!"snf decl: adding {hUUinvName}"
+  let (hUUinvTy, hUUinvExpr) ← runTacticAsTerm `snf do
+    let UUinvExpr ← mkMulExpr UConst UinvConst
+    let oneMM ← mkOneOfType matMMTy
+    let hUUinvTy ← mkEq UUinvExpr oneMM
+    let hUUinvExpr ← mkDecideProofExpr hUUinvTy
+    pure (hUUinvTy, hUUinvExpr)
+  addRegularDefDecl hUUinvName hUUinvTy hUUinvExpr
+  let hUUinvConst := mkConst hUUinvName
+
+  let hVVinvName := baseName.str "hVVinv"
+  logInfo m!"snf decl: adding {hVVinvName}"
+  let (hVVinvTy, hVVinvExpr) ← runTacticAsTerm `snf do
+    let VVinvExpr ← mkMulExpr VConst VinvConst
+    let oneNN ← mkOneOfType matNNTy
+    let hVVinvTy ← mkEq VVinvExpr oneNN
+    let hVVinvExpr ← mkDecideProofExpr hVVinvTy
+    pure (hVVinvTy, hVVinvExpr)
+  addRegularDefDecl hVVinvName hVVinvTy hVVinvExpr
+  let hVVinvConst := mkConst hVVinvName
+
+  let heqName := baseName.str "heq"
+  logInfo m!"snf decl: adding {heqName}"
+  let (heqTy, heqExpr) ← runTacticAsTerm `snf do
+    let UAExpr ← mkMulExpr UConst AExpr
+    let UAVExpr ← mkMulExpr UAExpr VConst
+    let heqTy ← mkEq UAVExpr DConst
+    let heqExpr ← mkDecideProofExpr heqTy
+    pure (heqTy, heqExpr)
+  addRegularDefDecl heqName heqTy heqExpr
+  let heqConst := mkConst heqName
+
+  let hdivName := baseName.str "hdiv"
+  logInfo m!"snf decl: adding {hdivName}"
+  let hdivExpr ← runTacticAsTerm `snf (mkHdivProofExpr DConst hVerifyConst)
+  logInfo m!"snf decl: built {hdivName} proof"
+  let hdivTy ← runTacticAsTerm `snf (mkDivChainWithinRankExpr mExpr nExpr R DConst)
+  logInfo m!"snf decl: built {hdivName} type"
+  logInfo m!"snf decl: adding {hdivName} def"
+  addRegularDefDecl hdivName hdivTy hdivExpr
+  let hdivConst := mkConst hdivName
+
+  logInfo m!"snf decl: assembling {baseName}"
+  let certExpr ← mkAppOptM ``CertificateSNF.mk #[
+    some mExpr, some nExpr,
+    some R,
+    none, none,
+    some AExpr,
+    some UConst,
+    some UinvConst,
+    some VConst,
+    some VinvConst,
+    some DConst,
+    some rConst,
+    some (← mkEqRefl rConst),
+    some hdiagConst,
+    some hrankConst,
+    some hUUinvConst,
+    some hVVinvConst,
+    some heqConst,
+    some hdivConst
+  ]
+  let certTy ← certTypeFor AExpr
+  logInfo m!"snf decl: adding {baseName}"
+  addRegularDefDecl baseName certTy certExpr
+  pure (mkConst baseName)
 
 /-- Build a `CertificateSNF AExpr` expression from Sage data, then elaborate and
 type-check it. This is the reusable construction backend for the `snf` tactic. -/

@@ -78,7 +78,7 @@ def ofVerifySNF
       hUUinv := h.right.left
       hVVinv := h.right.right.left
       heq := h.right.right.right
-      hdiv := divChain_of_verifyDiag D h.left }
+      hdiv := h.left.right }
   intro i
   exact diagEntry_eq_zero_iff_ge_firstZeroDiag_of_verifyDiag D i h.left
 
