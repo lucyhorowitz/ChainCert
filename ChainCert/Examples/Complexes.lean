@@ -14,6 +14,15 @@ def bowTieFFC : FiniteFacetComplex (Fin 5) where
   facets := { {0, 1, 2}, {0, 3}, {3, 4}, {0, 4} }
   vertex_mem := by decide
 
+/-- Minimal 6-vertex triangulation of the real projective plane `ℝP²`
+(10 triangles, 15 edges; every edge lies in exactly two triangles, and
+`V - E + F = 6 - 15 + 10 = 1 = χ(ℝP²)`). This is the well-known
+Möbius triangulation, up to relabelling. -/
+def rp2FFC : FiniteFacetComplex (Fin 6) where
+  facets := { {0,1,3}, {0,1,4}, {0,2,3}, {0,2,5}, {0,4,5},
+              {1,2,4}, {1,2,5}, {1,3,5}, {2,3,4}, {3,4,5} }
+  vertex_mem := by decide
+
 /-- Triangulation of the Klein bottle via a 3×3 grid on the fundamental polygon. -/
 def kleinBottleFFC : FiniteFacetComplex (Fin 9) where
   facets := { {0,1,3}, {1,3,4}, {1,2,4}, {2,4,5}, {0,2,5}, {0,3,5},

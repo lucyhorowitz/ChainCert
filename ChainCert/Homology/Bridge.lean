@@ -27,6 +27,7 @@ open scoped Matrix
 abbrev cycles (dk : Matrix (Fin m) (Fin n) R) : Submodule R (Fin n → R) :=
   LinearMap.ker (matLin dk)
 
+omit [IsDomain R] [IsPrincipalIdealRing R] [DecidableEq R] [SageSerializable R] in
 /-- If consecutive matrix boundary maps compose to zero, then the image of the
 second lies in the kernel of the first. -/
 theorem matRange_le_cycles_of_comp_eq_zero
@@ -75,7 +76,7 @@ instance matrixHomology.instModule
 
 namespace CertificateSNF
 
-omit [IsDomain R] [IsPrincipalIdealRing R] [SageSerializable R] in
+omit [IsDomain R] [IsPrincipalIdealRing R] [SageSerializable R] [DecidableEq R] in
 theorem diagonal_row_mulVec_eq
     {D : Matrix (Fin m) (Fin n) R} (hdiag : IsDiagonal D)
     {i : Fin m} {j : Fin n} (hij : i.val = j.val) (x : Fin n → R) :
@@ -123,6 +124,7 @@ theorem diagonal_mulVec_extendBottomCoordinates_eq_zero
   · have hD : certK.D i j = 0 := certK.hdiag i j hij
     simp [hD]
 
+omit [IsDomain R] [IsPrincipalIdealRing R] [SageSerializable R] in
 theorem diagonal_mulVec_vinv_eq_zero_of_mem_cycles
     {dk : Matrix (Fin m) (Fin n) R}
     (certK : CertificateSNF (A := dk)) (x : cycles dk) :
@@ -148,6 +150,7 @@ theorem diagonal_mulVec_vinv_eq_zero_of_mem_cycles
         _ = certK.U *ᵥ (dk *ᵥ (x : Fin n → R)) := by rw [Matrix.mulVec_mulVec]
     _ = 0 := by simp [hx]
 
+omit [IsPrincipalIdealRing R] [SageSerializable R] in
 theorem vinv_mulVec_eq_zero_of_mem_cycles_of_lt
     {dk : Matrix (Fin m) (Fin n) R}
     (certK : CertificateSNF (A := dk)) (x : cycles dk)
@@ -173,7 +176,7 @@ theorem vinv_mulVec_eq_zero_of_mem_cycles_of_lt
       omega
     have hD : certK.D i j = diagEntry certK.D q := by
       unfold diagEntry
-      congr <;> ext <;> simp [i, q]
+      congr
     simpa [hD] using hentry_ne
   exact (eq_zero_or_eq_zero_of_mul_eq_zero hrow).resolve_left hdiag_ne
 
@@ -284,7 +287,7 @@ noncomputable def cycleCoordinateEquiv
 
 end CertificateSNF
 
-omit [IsDomain R] [IsPrincipalIdealRing R] [SageSerializable R] in
+omit [IsDomain R] [IsPrincipalIdealRing R] [SageSerializable R] [DecidableEq R] in
 theorem bottomCoordinates_mulVec_eq_bottomRows_mulVec
     (r : ℕ) (A : Matrix (Fin n) (Fin p) R) (x : Fin p → R) :
     bottomCoordinates (R := R) r n (A *ᵥ x) = bottomRows r A *ᵥ x := by
@@ -431,6 +434,22 @@ noncomputable def homologyEquivDiagonal
   (homologyEquivPresentation (R := R) cert).trans
     (presentationCokernelEquivDiagonal (R := R) cert)
 
+/-- Combine `homologyEquivDiagonal` with `diagonalCokernelPiEquiv` to identify
+the homology quotient with a product of ideal quotients, one per row of the
+certified diagonal Smith form `D` of the presentation matrix.
+
+For `R = ℤ`, each factor is either `ℤ` (when the corresponding diagonal entry
+is `0`, including all rows beyond the rank), `0` (when the entry is a unit), or
+`ℤ/dℤ` (when the entry is `d`). -/
+noncomputable def homologyEquivPi
+    {dk : Matrix (Fin m) (Fin n) R}
+    {dk1 : Matrix (Fin n) (Fin p) R}
+    (cert : ChainQuotientCert (R := R) dk dk1) :
+    cert.homologyModule ≃ₗ[R]
+      ∀ i : Fin (n - cert.certK.r), R ⧸ rowDiagIdeal (R := R) cert.certM.D i :=
+  (homologyEquivDiagonal (R := R) cert).trans
+    (diagonalCokernelPiEquiv (R := R) cert.certM.hdiag)
+
 end ChainQuotientCert
 
 namespace CertificateHomology
@@ -488,5 +507,15 @@ noncomputable def homologyEquivDiagonal {X : FFC ι} {k : ℕ}
         matRange cert.presentationCert.D) :=
   (homologyEquivPresentation (R := R) cert).trans
     (presentationCokernelEquivDiagonal (R := R) cert)
+
+/-- A homology certificate identifies the actual homology quotient with the
+product of ideal quotients determined by the certified diagonal Smith form of
+the presentation matrix. -/
+noncomputable def homologyEquivPi {X : FFC ι} {k : ℕ}
+    (cert : CertificateHomology (R := R) X k) :
+    cert.homologyModule ≃ₗ[R]
+      ∀ i : Fin (cellCount X k - cert.quotientCert.certK.r),
+        R ⧸ rowDiagIdeal (R := R) cert.presentationCert.D i :=
+  ChainQuotientCert.homologyEquivPi (R := R) cert.quotientCert
 
 end CertificateHomology

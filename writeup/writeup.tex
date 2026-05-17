@@ -120,13 +120,13 @@ Interactive theorem provers (ITPs) like Lean are very good at checking proofs bu
 
 In theory it is possible to re-implement the necessary algorithms in Lean or prove that the implementation in Sage is correct, but this is difficult. Algorithms may be enormously complicated or rely on space-saving hacks for efficiency that Lean isn't able to take advantage of. Moreover, Lean isn't built for numerical work in the first place.
 
-Another strategy to solve this problem is to let each system do what it is good at at build a concrete bridge between them. Instead of blindly trusting Sage's answer, we can modify what it outputs so that Lean is capable of checking the answer. The output is a \textit{certificate} of computation: a small amount of additional data that is sufficient for the verification of the result. This moves the trust boundary from all of Sage to Lean's typechecker. This general pattern of certificate-based CAS-Lean interaction follows Baanen et al. \cite{baanenCertifyingRingsIntegers2025}.
+Another strategy to solve this problem is to let each system do what it is good at at build a concrete bridge between them. Instead of blindly trusting Sage's answer, we can modify what it outputs so that Lean is capable of checking the answer. The output is a \textit{certificate} of computation: a small amount of additional data that is sufficient for the verification of the result. This moves the trust boundary from all of Sage to Lean's typechecker. This general pattern of certificate-based CAS-Lean interaction follows Baanen et al. \cite{baanen}.
 
 This project develops the paradigm for the concrete case of integral homology of a finite simplicial complex. Computing the homology groups is simple and well-understood: it takes nothing more than computing the boundary matrices, computing two Smith normal forms, and reading off the invariant factors. If you ask Sage to compute the homology groups of a simplicial complex it will just give you the Betti numbers and torsion coefficients, not any of the intermediate matrices. With just these numbers alone, it is not possible to check whether or not the answer is correct. We instead ask sage for a full certificate, including the Smith normal forms (which have their own certificates) and prove a theorem in Lean that this is sufficient to guarantee correctness of the computation. 
 
 Homology is a useful first target for this kind of certificate-based bridge because the underlying linear algebra is concrete and well-understood, the certificates are small and easy to specify, while the workflow exposes every part of the interface between Sage and Lean, from serialization of ring elements to parsing structured output and constructing \lean{Expr}s.
 
-The rest of the paper is strucutred as follows: \Cref{sec:background} reviews the mathematical backround necessary for computing the homology groups of a simplicial complex using the SNF. It is short and self-contained beyond some basic facts and definitions in algebra and topology. \cref{sec:certificates} introduces the certificates we defined and proves their soundness. \cref{sec:tactics} describes the Lean tactics and commands that work with the certificates. \cref{sec:theorems} collects the main verified ``bridge theorems.'' \cref{sec:examples} works through concrete examples, and \cref{sec:future} describes potential future directions for the project. 
+The rest of the paper is structured as follows: \Cref{sec:background} reviews the mathematical background necessary for computing the homology groups of a simplicial complex using the SNF. It is short and self-contained beyond some basic facts and definitions in algebra and topology. \cref{sec:certificates} introduces the certificates we defined and proves their soundness. \cref{sec:theorems} collects the main verified ``bridge theorems'' connecting those certificates to Mathlib quotient objects. \cref{sec:tactics} describes the Lean tactics and commands that construct the certificates from Sage output. \cref{sec:examples} works through concrete examples. 
 
 
 \section{Background}\label{sec:background}
@@ -318,67 +318,92 @@ Smith normal form of $A$, Sage returns the diagonal matrix $D$ together with
 change-of-basis matrices $U$ and $V$ and their inverses. Lean then checks that
 these matrices really witness a Smith normal form.
 
-\begin{lstlisting}[caption={The core SNF certificate, slightly simplified for display.},label={lst:snf-certificate}]
+\begin{lstlisting}[caption={The core SNF certificate.},label={lst:snf-certificate}]
 structure CertificateSNF (A : Matrix (Fin m) (Fin n) R) where
   U    : Matrix (Fin m) (Fin m) R
   Uinv : Matrix (Fin m) (Fin m) R
   V    : Matrix (Fin n) (Fin n) R
   Vinv : Matrix (Fin n) (Fin n) R
   D    : Matrix (Fin m) (Fin n) R
-  r    : Nat := firstZeroDiag D
-
-  hrankCutoff : r = firstZeroDiag D
-  hdiag  : IsDiagonal D
-  hrank  : ∀ i, diagEntry D i = 0 ↔ r <= i.val
-  hUUinv : U * Uinv = 1
-  hVVinv : V * Vinv = 1
-  heq    : U * A * V = D
-  hdiv   : ∀ i j, i.val + 1 = j.val →
-             diagEntry D i ∣ diagEntry D j
+  r    : ℕ := firstZeroDiag D
+  hrankCutoff : r = firstZeroDiag D                       := by native_decide
+  hdiag  : IsDiagonal D                                   := by native_decide
+  hrank  : ∀ i : Fin (min m n),
+              diagEntry D i = 0 ↔ r ≤ i.val               := by native_decide
+  hUUinv : U * Uinv = 1                                   := by native_decide
+  hVVinv : V * Vinv = 1                                   := by native_decide
+  heq    : U * A * V = D                                  := by native_decide
+  hdiv   : ∀ i j : Fin (min m n),
+              i.val + 1 = j.val →
+              diagEntry D i ∣ diagEntry D j               := by native_decide
 \end{lstlisting}
 
-The fields \lean{U}, \lean{V}, and \lean{D} are the mathematical data of the
-Smith normal form: \lean{heq} checks that $D=UAV$. The fields \lean{Uinv} and
-\lean{Vinv} make unimodularity checkable by matrix multiplication rather than by
-recomputing determinants. The predicate \lean{hdiag} says that $D$ is diagonal,
-\lean{hdiv} checks the divisibility chain on consecutive diagonal entries, and
-\lean{hrankCutoff} fixes \lean{r} to be the first zero diagonal index.
-The field \lean{hrank} records the corresponding zero-tail condition on the
-diagonal entries. The number \lean{r} is therefore the rank read off from the
-certified diagonal matrix.
+The fields fall into three groups. The first group, \lean{U}, \lean{V}, and
+\lean{D}, is the mathematical data of the Smith normal form. The field
+\lean{heq} is the SNF identity itself: \(UAV = D\). The second group,
+\lean{Uinv} and \lean{Vinv}, exists for verification efficiency. By
+\Cref{def:snf}, the change-of-basis matrices are required to be unimodular,
+meaning their determinants are units. Checking unimodularity by computing
+determinants symbolically gets expensive fast in any reasonable matrix size,
+so instead Sage hands us the explicit inverses, and Lean just checks the
+matrix product \(U U^{-1} = 1\) (this is \lean{hUUinv}; the symmetric flip
+\lean{Uinv * U = 1} follows automatically for square matrices over a
+commutative ring, and is provided as a derived lemma \lean{hUinvU}). Same story
+for \(V\).
 
-All of these fields are small, concrete equations or decidable predicates about
-finite matrices. This is the point of the certificate: Sage may have used any
-algorithm it likes to find the data, but Lean only needs to check the resulting
-matrix identities.
+The third group encodes the structural conditions on \(D\) itself.
+\lean{IsDiagonal D} says that every off-diagonal entry of \(D\) is zero
+(off-diagonal here means \(i \neq j\) as natural numbers, since \(D\) is
+rectangular). \lean{hdiv} is the divisibility chain
+\(d_1 \mid d_2 \mid \cdots\) from \Cref{def:snf}, but stated only for
+\emph{consecutive} indices --- the full chain follows from transitivity, so
+there is no need to store quadratically many divisibility witnesses. The
+indices \(i, j\) range over \(\mathtt{Fin}(\min m\, n)\) because that is the
+length of the diagonal of an \(m \times n\) matrix.
 
-In the current implementation, many of these checks are discharged with
-\lean{native_decide}. This is convenient because the goals are finite
-computations, but it is not quite the same trust story as a proof by kernel
+The remaining piece is the rank. The number \lean{r} is defined to be
+\lean{firstZeroDiag D}, the smallest index where the diagonal of \(D\)
+vanishes (or \(\min m\, n\) if it never does). The field \lean{hrankCutoff}
+records this definitional equation explicitly so that downstream proofs can
+treat \lean{r} as an opaque $\mathbb{N}$ and unfold only when needed. The field
+\lean{hrank} then says \(d_i = 0\) iff \(r \leq i\), which is the precise
+``zero-tail'' condition on a diagonal in Smith form: the diagonal entries are
+nonzero strictly before \(r\) and zero from \(r\) onward. Combined with
+\lean{hdiv}, this matches \Cref{def:snf} exactly.
+
+All of these fields are decidable predicates or equations between concrete
+finite matrices. This is the whole point of the certificate format: Sage may
+have used any algorithm it likes to produce \(U\), \(V\), \(D\), and the
+inverses, but the conditions Lean checks are purely about the resulting matrix
+data, with no reference to how it was obtained.
+
+In the current implementation, every check is discharged with
+\lean{native_decide} (the default tactics shown in the listing). This is
+convenient because the goals are all finite computations on concrete integer
+matrices, but it is not quite the same trust story as a proof by kernel
 reduction alone: \lean{native_decide} relies on Lean's native-code evaluator,
-and so in principle trusts more of Lean's compiler and runtime. The intended
+so in principle it trusts more of Lean's compiler and runtime. The intended
 claim is therefore not that the implementation has Mathlib's smallest possible
-trusted base, but that Sage is not trusted for correctness of the mathematical
-result. Sage supplies candidate data; Lean checks the certificate data it
-receives.
+trusted base, but that Sage is not trusted for correctness of the
+mathematical result. Sage supplies candidate data; Lean checks the certificate
+fields itself.
 
 \subsection{Homology Certificates}
 
-The homology certificate packages together the SNF data needed for one degree of
-homology. It is stated for two consecutive boundary matrices
+The homology certificate packages together the SNF data needed for one degree
+of homology. Recall from \Cref{sec:background} that computing \(H_k\) requires
+two SNFs --- one for \(d_k\), which identifies the cycle group, and one for
+the resulting presentation matrix \(M\) of the boundary image inside cycles.
+The certificate carries both, plus the gluing data that ties them together.
+
+It is stated for two consecutive boundary matrices
 \[
     d_k : \mathbb{Z}^{n} \to \mathbb{Z}^{m},
     \qquad
     d_{k+1} : \mathbb{Z}^{p} \to \mathbb{Z}^{n}.
 \]
-First, it stores an SNF certificate for $d_k$. This identifies coordinates on
-the cycle group $\ker d_k$. Second, it checks the chain condition
-$d_kd_{k+1}=0$. Third, it stores the presentation matrix $M$ for the image of
-$d_{k+1}$ inside those cycle coordinates, together with a proof that this is the
-matrix constructed from the certified SNF of $d_k$. Finally, it stores an SNF
-certificate for $M$.
 
-\begin{lstlisting}[caption={The chain quotient certificate used to present homology.},label={lst:chain-quotient-certificate}]
+\begin{lstlisting}[caption={The chain quotient certificate.},label={lst:chain-quotient-certificate}]
 structure ChainQuotientCert
     (dk  : Matrix (Fin m) (Fin n) R)
     (dk1 : Matrix (Fin n) (Fin p) R) where
@@ -387,18 +412,209 @@ structure ChainQuotientCert
   M     : Matrix (Fin (n - certK.r)) (Fin p) R
   hM    : M = cyclePresentationMatrix certK dk1
   certM : CertificateSNF M
+\end{lstlisting}
 
-structure CertificateHomology (X : FFC V) (k : Nat) where
+There are five fields, each playing a specific role.
+
+The first field, \lean{certK}, is an SNF certificate for \(d_k\). This is what
+gives Lean enough information to talk about the cycle group \(\ker d_k\) in a
+concrete basis: as explained in \Cref{sec:background} and made precise in
+\Cref{sec:theorems}, the bottom \(n - r\) coordinates of \(V^{-1}\) give a
+basis for cycles, where \(r\) is the rank cutoff stored inside \lean{certK}.
+
+The second field, \lean{hCC}, is the chain condition \(d_k d_{k+1} = 0\). It
+is a single matrix equation and so is discharged by the same
+\lean{native_decide} kind of check. Without it, the quotient
+\(\ker d_k / \operatorname{im} d_{k+1}\) is not even defined as a Mathlib
+module.
+
+The third field, \lean{M}, is the \emph{presentation matrix} for the boundary
+image, written in cycle coordinates. Its row index has length \(n - r\),
+which is exactly the dimension of the cycle space in the certified basis, and
+its column index is \(p\), the number of \((k+1)\)-cells. Concretely,
+\lean{M} is the matrix whose cokernel will present \(H_k\).
+
+The fourth field, \lean{hM}, is what makes \lean{M} honest. The function
+\lean{cyclePresentationMatrix certK dk1} is defined in
+\lean{ChainCert/Homology/Basic.lean} as
+\[
+    \mathtt{cyclePresentationMatrix\ certK\ dk1}
+      \;=\; \mathtt{bottomRows}\, r\, \bigl(V^{-1} \cdot d_{k+1}\bigr),
+\]
+that is, take the product \(V^{-1} d_{k+1}\) and keep only the rows from index
+\(r\) onward. The condition \lean{hM : M = cyclePresentationMatrix certK dk1}
+forces \lean{M} to be exactly this matrix, computed from the SNF data and
+\(d_{k+1}\). The reader might reasonably ask why \lean{M} is stored
+separately at all, given that it is determined by the other fields. The reason
+is purely operational: storing \lean{M} as its own field lets Sage hand it to
+Lean as a concrete integer matrix, which then becomes the input to a second
+SNF certificate. The equation \lean{hM} is the guard rail that prevents
+\lean{M} from drifting away from what the cycle-coordinate definition says it
+should be.
+
+The fifth field, \lean{certM}, is an SNF certificate for that presentation
+matrix \(M\). This is the second SNF needed to read off Betti numbers and
+torsion --- once Lean knows that \(H_k\) is the cokernel of \(M\) (the content
+of \Cref{sec:theorems}), \lean{certM} reduces this further to the cokernel of
+a diagonal matrix.
+
+The certificate \lean{ChainQuotientCert} is deliberately stated independently
+of simplicial complexes: it is a certificate for the quotient
+\(\ker d_k / \operatorname{im} d_{k+1}\) associated to any two composable
+matrices over a PID. The wrapper \lean{CertificateHomology} specializes this
+to the boundary matrices of a finite facet complex:
+
+\begin{lstlisting}[caption={The homology certificate for a finite facet complex.},label={lst:homology-certificate}]
+structure CertificateHomology (X : FFC V) (k : ℕ) where
   quotientCert :
     ChainQuotientCert (boundaryK X k) (boundaryK X (k + 1))
 \end{lstlisting}
 
-The certificate \lean{ChainQuotientCert} is independent of simplicial complexes:
-it is just a certificate for the quotient $\ker d_k/\operatorname{im}d_{k+1}$
-associated to two composable matrices. The wrapper \lean{CertificateHomology}
-specializes this to the boundary matrices of a finite facet complex. This
-separation is useful because the algebraic verification of the quotient does not
-depend on how the boundary matrices were produced.
+This separation is useful because the algebraic verification of the quotient
+does not depend on how the boundary matrices were produced. Any other source
+of two composable integer matrices over \(\mathbb{Z}\) --- not just
+simplicial boundary maps --- could plug into \lean{ChainQuotientCert} and
+inherit the bridge theorems of \Cref{sec:theorems} verbatim.
+
+\section{Theorems}\label{sec:theorems}
+
+The point of a certificate is that the fields are tiny, finite-matrix checks,
+but the conclusion is a statement about honest Mathlib submodules and
+quotients. \Cref{sec:background} already explained \emph{how} one computes
+homology from two SNFs; this section explains what ChainCert actually
+\emph{proves} about that recipe. The bridge layer turns each step of the
+algorithm into a linear equivalence between the certified matrix data and the
+corresponding piece of Mathlib linear algebra, and then composes them.
+
+Throughout, fix an SNF certificate \lean{cert : CertificateSNF A} for a matrix
+\(A : \mathbb{Z}^n \to \mathbb{Z}^m\). We write \lean{matRange A} for the image
+of the associated linear map.
+
+\subsection{The SNF Bridge}
+
+The first bridge says that the change-of-basis matrix \(U\) really is a linear
+equivalence of \(\mathbb{Z}^m\), and that it carries the image of \(A\) onto
+the image of the diagonal form \(D\). Concretely, \lean{rowLinearEquiv cert} is
+the map \(x \mapsto U x\); it is invertible because the certificate carries
+both \lean{U * Uinv = 1} and \lean{Uinv * U = 1}.
+
+The range identity is the substantive statement. Given \(y = A z\) in the image
+of \(A\), the certificate equation \(UAV = D\) lets us rewrite
+\[
+    U y \;=\; U(Az) \;=\; (UAV)(V^{-1}z) \;=\; D(V^{-1}z),
+\]
+so \(Uy\) is in the image of \(D\). The same computation read backwards, using
+\(V V^{-1} = 1\), shows that every \(Dz'\) equals \(U(A(Vz'))\). Hence
+\(U\) maps \(\operatorname{im}A\) bijectively onto \(\operatorname{im}D\).
+Because \(U\) is a linear equivalence carrying one submodule onto another, it
+descends to an equivalence of quotients:
+
+\begin{lstlisting}[caption={The certified diagonal presents the same cokernel.},label={lst:cokernel-equivalence}]
+noncomputable def cokernelEquivDiagonal (cert : CertificateSNF A) :
+    ((Fin m → R) ⧸ matRange A) ≃ₗ[R]
+      ((Fin m → R) ⧸ matRange cert.D)
+\end{lstlisting}
+
+This is exactly the cokernel side of the structure theorem
+(\Cref{prop:snf-bridge}) made into a concrete linear equivalence: any module
+presented by \(A\) is presented equally well by its certified diagonal form,
+and the diagonal form is what we will read invariants from later.
+
+\subsection{Cycles in Certified Coordinates}
+
+For the homology bridge, fix two consecutive boundary matrices
+\(d_k : \mathbb{Z}^n \to \mathbb{Z}^m\) and
+\(d_{k+1} : \mathbb{Z}^p \to \mathbb{Z}^n\) with \(d_k d_{k+1} = 0\), and an
+SNF certificate \lean{certK} for \(d_k\) with rank cutoff \(r\) (the index of
+the first zero on the diagonal of the certified \(D\)).
+
+The chain condition is essentially trivial to state and prove:
+\(d_k d_{k+1} = 0\) immediately gives
+\(\operatorname{im} d_{k+1} \subseteq \ker d_k\), so the homology quotient
+\(\ker d_k / \operatorname{im} d_{k+1}\) is a well-defined Mathlib quotient
+module (which the file calls \lean{matrixHomology dk dk1 hCC}).
+
+The first real content is the \emph{cycle-coordinate equivalence}. The picture
+from \Cref{sec:background} was: change basis in the domain of \(d_k\) by
+\(V^{-1}\), and the kernel becomes the subspace of vectors whose first \(r\)
+coordinates vanish, with the remaining \(n - r\) coordinates free. ChainCert
+proves this directly. For any cycle \(x \in \ker d_k\),
+\[
+    D \cdot (V^{-1} x)
+      \;=\; (UAV)\,(V^{-1} x)
+      \;=\; U \cdot (d_k \, x)
+      \;=\; 0.
+\]
+For each index \(j < r\), the \(j\)th diagonal entry of \(D\) is a unit (by
+\lean{certK.hrank}, the diagonal is zero exactly past \(r\)), so the \(j\)th
+coordinate of \(V^{-1} x\) must itself vanish. Thus \(V^{-1}\) sends a cycle to
+a vector supported on coordinates \(r, r+1, \ldots, n - 1\), and the
+``bottom \(n - r\) coordinates'' carry all the data. This is
+\lean{cycleCoordinateEquiv certK}: the forward map sends \(x\) to
+\(\mathtt{bottomCoordinates}(V^{-1} x)\), and the inverse extends a vector by
+zeros on the top \(r\) coordinates and applies \(V\). The two compositions
+collapse using \(V V^{-1} = V^{-1} V = 1\) together with the vanishing of
+the top coordinates on cycles.
+
+\subsection{The Presentation Matrix}
+
+With the cycle-coordinate equivalence in hand, the only thing left is to write
+\(\operatorname{im} d_{k+1}\) inside the cycle coordinates. The certificate
+stores a matrix \lean{M} and a proof that
+\[
+    \mathtt{M} \;=\; \mathtt{cyclePresentationMatrix\ certK\ dk1}
+        \;=\; \mathtt{bottomRows}\, r\, \bigl(V^{-1} \cdot d_{k+1}\bigr),
+\]
+i.e.\ \(M\) is the bottom \(n - r\) rows of \(V^{-1} d_{k+1}\). The
+identification is then a one-line matrix computation: for any
+\(z \in \mathbb{Z}^p\), the chain \(d_{k+1} z\) is a cycle, and its image
+under the cycle-coordinate equivalence is
+\[
+    \mathtt{bottomCoordinates}\bigl(V^{-1} (d_{k+1} z)\bigr)
+      \;=\; \mathtt{bottomCoordinates}\bigl((V^{-1} d_{k+1})\, z\bigr)
+      \;=\; \bigl(\mathtt{bottomRows}\, r\,(V^{-1} d_{k+1})\bigr)\, z
+      \;=\; M z.
+\]
+So as \(z\) ranges over \(\mathbb{Z}^p\), the image of
+\(\operatorname{im} d_{k+1}\) under the cycle-coordinate equivalence traces
+out exactly \(\operatorname{im} M\). This is
+\lean{map_boundaryImage_eq_presentationRange}, the central bookkeeping lemma
+of the homology bridge: \(M\) is not an auxiliary object, it is the next
+boundary map written in the certified basis for cycles.
+
+Quotienting by equal submodules across an equivalence then gives a linear
+equivalence
+\[
+    \ker d_k / \operatorname{im} d_{k+1}
+      \;\cong\; \mathbb{Z}^{n - r} / \operatorname{im} M,
+\]
+formalized as \lean{ChainQuotientCert.homologyEquivPresentation}.
+
+\subsection{Composing the Two Bridges}
+
+At this point, the homology of \((d_k, d_{k+1})\) has been identified with the
+cokernel of a single matrix \(M\), so the SNF bridge of
+\Cref{sec:certificates} applies to \(M\) directly. The certificate stores an
+SNF certificate \lean{certM} for \(M\), and composing the two equivalences
+gives the headline statement:
+
+\begin{lstlisting}[caption={The final homology bridge.},label={lst:homology-diagonal-equivalence}]
+noncomputable def homologyEquivDiagonal
+    (cert : CertificateHomology X k) :
+    cert.homologyModule ≃ₗ[R]
+      ((Fin (cellCount X k - cert.quotientCert.certK.r) → R) ⧸
+        matRange cert.presentationCert.D)
+\end{lstlisting}
+
+This says: the actual algebraic homology group
+\(H_k(X;\mathbb{Z})\), in the form \(\ker \partial_k / \operatorname{im}
+\partial_{k+1}\), is linearly equivalent to the cokernel of an explicit
+diagonal integer matrix, whose entries Lean has separately verified to be the
+Smith normal form of the presentation matrix \(M\). Combined with
+\Cref{prop:snf-bridge}, this is the formal endpoint of the recipe of
+\Cref{sec:background}: the Betti number and torsion coefficients of \(H_k\)
+can now be read off from a diagonal matrix that lives entirely in checked Lean
+data.
 
 \section{Tactics and Commands}\label{sec:tactics}
 
@@ -498,103 +714,7 @@ facet complex \lean{X} in degree \lean{k}. These commands are intentionally not
 the trusted interface: the trusted path is through the tactics, which turn the
 Sage output into Lean-checked certificates.
 
-\section{Theorems}\label{sec:theorems}
-
-The certificate structures are not just records of Sage output. They are meant
-to imply the algebraic object we wanted Sage to compute. The formalized theorem
-layer is the bridge from executable certificates to ordinary Mathlib algebra:
-the certificates contain the low-level matrix equalities, and the theorems
-explain what those equalities mean as statements about submodules, cokernels,
-and homology quotients.
-
-For SNF certificates, ChainCert proves that the certified row operation is a
-linear equivalence and that it identifies the image of the original matrix with
-the image of the certified diagonal matrix:
-
-\begin{lstlisting}[caption={A representative bridge theorem for SNF certificates.},label={lst:snf-bridge-theorem}]
-theorem map_matRange_eq_diagonal (cert : CertificateSNF A) :
-    (matRange A).map
-        (rowLinearEquiv (A := A) cert : (Fin m → R) →ₗ[R] (Fin m → R)) =
-      matRange cert.D
-\end{lstlisting}
-
-As a consequence, an SNF certificate gives exactly the usual object one wants
-from Smith normal form: it identifies the cokernel of the original matrix map
-with the cokernel of the certified diagonal form. This is the main theorem
-connecting the executable SNF certificate to a standard Mathlib quotient
-object:
-
-\begin{lstlisting}[caption={The certified diagonal form presents the same cokernel.},label={lst:cokernel-equivalence}]
-noncomputable def cokernelEquivDiagonal (cert : CertificateSNF A) :
-    ((Fin m → R) ⧸ matRange A) ≃ₗ[R]
-      ((Fin m → R) ⧸ matRange cert.D)
-\end{lstlisting}
-
-For homology certificates, ChainCert first proves the basic algebraic
-consequence of the chain condition: the next boundary image lies in the current
-cycle group. This is what makes the quotient
-\[
-    \ker d_k / \operatorname{im} d_{k+1}
-\]
-well-defined. ChainCert packages this quotient as a Mathlib object
-\lean{homologyModule}. It also proves that the stored presentation matrix has
-its own certified diagonal cokernel presentation:
-
-\begin{lstlisting}[caption={The certified homology presentation diagonalizes.},label={lst:homology-presentation-diagonal}]
-noncomputable def presentationCokernelEquivDiagonal
-    (cert : CertificateHomology X k) :
-    ((Fin (cellCount X k - cert.quotientCert.certK.r) → R) ⧸
-        matRange cert.presentationMatrix) ≃ₗ[R]
-      ((Fin (cellCount X k - cert.quotientCert.certK.r) → R) ⧸
-        matRange cert.presentationCert.D)
-\end{lstlisting}
-
-Thus, the current certificates already get the central computable object:
-a Lean-checked presentation matrix for the homology calculation, together with
-a Lean-checked SNF certificate for that presentation. What remains to be
-formalized is the clean Mathlib-facing equivalence saying that this presentation
-cokernel is the same quotient as \lean{homologyModule}.
-
-The theorem that should eventually be proved is that the presentation matrix
-stored in a \lean{ChainQuotientCert} really presents the homology quotient
-\(\ker d_k/\operatorname{im}d_{k+1}\). Informally, this should say that the SNF
-certificate for \(d_k\) identifies \(\ker d_k\) with the bottom coordinates
-after the rank cutoff, and that under this identification the image of
-\(d_{k+1}\) is exactly the submodule generated by the columns of the stored
-matrix \(M\). Once this equivalence is proved, the existing SNF cokernel theorem
-can be composed with it to obtain a fully formal classification of the
-certified homology group.
-
 \section{Examples}\label{sec:examples}
-
-\section{Future Work}\label{sec:future}
-
-There are two natural directions for future work.
-
-First, the certificate checks should be moved away from \lean{native_decide}.
-The current implementation uses \lean{native_decide} because the relevant goals
-are finite matrix computations and native evaluation is fast. However, this
-means the trusted base includes Lean's native-code evaluator. A cleaner version
-would use verified Boolean checkers, together with reflection theorems of the
-form ``the checker returns \lean{true} if and only if the mathematical
-predicate holds.'' Some of this infrastructure already exists for diagonal and
-boundary verification. There is also now a small constructor,
-\lean{CertificateSNF.ofVerifySNF}, which builds a \lean{CertificateSNF} from the
-verified SNF predicate. The remaining work is to route the tactic-generated
-data through this verified-checker path systematically.
-
-Second, the algebraic theorem layer should be completed. The key missing result
-is the equivalence between the actual homology quotient
-\(\ker d_k/\operatorname{im}d_{k+1}\) and the cokernel of the certified
-cycle-presentation matrix. This is conceptually straightforward linear algebra,
-but it requires careful bookkeeping around finite bases, the rank cutoff, and
-the coordinate change coming from the SNF certificate for \(d_k\).
-
-The most plausible next theorem is not the full homology classification
-theorem, but a lemma isolating the cycle-coordinate statement: after applying
-the certified inverse column change for \(d_k\), vectors in \(\ker d_k\) are
-exactly those whose first \(r\) coordinates vanish. That lemma would be a
-useful stepping stone toward the full presentation theorem.
 
 \section*{Acknowledgments}
 The Lean-side Sage transport layer (the persistent subprocess wrapper in \texttt{SageServer.lean}) is adapted from earlier Lean--Sage tactic infrastructure by M.~Karatarakis. The original source is attributed in the file header in the project source.
